@@ -1,0 +1,21 @@
+{
+  "id": "drive-files-get",
+  "source": "synthesized",
+  "provenance": "Discovery drive v3 rev 20261106 File (default fields); served by the fake seeded with preset \"default\" for alice@fake.test",
+  "request": {
+    "method": "GET",
+    "path": "/www.googleapis.com/drive/v3/files/seed-file-readme"
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "kind": "drive#file",
+      "id": "seed-file-readme",
+      "name": "README.txt",
+      "mimeType": "text/plain"
+    }
+  }
+}

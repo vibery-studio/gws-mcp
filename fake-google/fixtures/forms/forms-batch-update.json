@@ -1,0 +1,21 @@
+{
+  "id": "forms-forms-batch-update",
+  "source": "synthesized",
+  "provenance": "Discovery forms v1 rev 20261107 BatchUpdateFormResponse; body updateFormInfo {description} with updateMask \"description\"",
+  "request": {
+    "method": "POST",
+    "path": "/forms.googleapis.com/v1/forms/seed-form-feedback:batchUpdate"
+  },
+  "response": {
+    "status": 200,
+    "headers": {},
+    "body": {
+      "replies": [
+        {}
+      ],
+      "writeControl": {
+        "requiredRevisionId": "00000002"
+      }
+    }
+  }
+}

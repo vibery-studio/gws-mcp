@@ -1,0 +1,74 @@
+{
+  "id": "docs-documents-get",
+  "source": "synthesized",
+  "provenance": "Discovery docs v1 rev 20261106 Document resource",
+  "request": {
+    "method": "GET",
+    "path": "/docs.googleapis.com/v1/documents/seed-doc-notes"
+  },
+  "response": {
+    "status": 200,
+    "headers": {},
+    "body": {
+      "documentId": "seed-doc-notes",
+      "title": "Meeting notes",
+      "body": {
+        "content": [
+          {
+            "endIndex": 1,
+            "sectionBreak": {
+              "sectionStyle": {
+                "columnSeparatorStyle": "NONE",
+                "contentDirection": "LEFT_TO_RIGHT",
+                "sectionType": "CONTINUOUS"
+              }
+            }
+          },
+          {
+            "startIndex": 1,
+            "endIndex": 8,
+            "paragraph": {
+              "elements": [
+                {
+                  "startIndex": 1,
+                  "endIndex": 8,
+                  "textRun": {
+                    "content": "Agenda\n",
+                    "textStyle": {}
+                  }
+                }
+              ],
+              "paragraphStyle": {
+                "namedStyleType": "NORMAL_TEXT",
+                "direction": "LEFT_TO_RIGHT"
+              }
+            }
+          },
+          {
+            "startIndex": 8,
+            "endIndex": 25,
+            "paragraph": {
+              "elements": [
+                {
+                  "startIndex": 8,
+                  "endIndex": 25,
+                  "textRun": {
+                    "content": "Ship the helpers\n",
+                    "textStyle": {}
+                  }
+                }
+              ],
+              "paragraphStyle": {
+                "namedStyleType": "NORMAL_TEXT",
+                "direction": "LEFT_TO_RIGHT"
+              }
+            }
+          }
+        ]
+      },
+      "documentStyle": {},
+      "revisionId": "rev-1",
+      "suggestionsViewMode": "SUGGESTIONS_INLINE"
+    }
+  }
+}

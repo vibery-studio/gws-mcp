@@ -1,0 +1,26 @@
+{
+  "id": "slides-presentations-batch-update",
+  "source": "synthesized",
+  "provenance": "Discovery slides v1 rev 20261109 BatchUpdatePresentationResponse; body replaceAllText \"{{name}}\" -> \"Dana\" (matchCase)",
+  "request": {
+    "method": "POST",
+    "path": "/slides.googleapis.com/v1/presentations/seed-slides-template:batchUpdate"
+  },
+  "response": {
+    "status": 200,
+    "headers": {},
+    "body": {
+      "presentationId": "seed-slides-template",
+      "replies": [
+        {
+          "replaceAllText": {
+            "occurrencesChanged": 3
+          }
+        }
+      ],
+      "writeControl": {
+        "requiredRevisionId": "rev-2"
+      }
+    }
+  }
+}

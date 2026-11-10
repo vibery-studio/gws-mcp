@@ -1,0 +1,22 @@
+{
+  "id": "gmail-messages-send",
+  "source": "synthesized",
+  "provenance": "Discovery gmail v1 rev 20261102 Message (send response); served by the fake seeded with preset \"default\" for alice@fake.test",
+  "request": {
+    "method": "POST",
+    "path": "/gmail.googleapis.com/gmail/v1/users/me/messages/send"
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "id": "e4bfba9d0ed3dd8d",
+      "threadId": "e4bfba9d0ed3dd8d",
+      "labelIds": [
+        "SENT"
+      ]
+    }
+  }
+}

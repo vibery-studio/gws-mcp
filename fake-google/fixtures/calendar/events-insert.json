@@ -1,0 +1,43 @@
+{
+  "id": "calendar-events-insert",
+  "source": "synthesized",
+  "provenance": "Discovery calendar v3 rev 20261102 Event resource",
+  "request": {
+    "method": "POST",
+    "path": "/www.googleapis.com/calendar/v3/calendars/primary/events"
+  },
+  "response": {
+    "status": 200,
+    "headers": {},
+    "body": {
+      "kind": "calendar#event",
+      "etag": "\"fake-x\"",
+      "id": "x",
+      "status": "confirmed",
+      "htmlLink": "https://www.google.com/calendar/event?eid=x",
+      "created": "2026-11-09T05:00:00.000Z",
+      "updated": "2026-11-09T05:00:00.000Z",
+      "creator": {
+        "email": "alice@fake.test",
+        "self": true
+      },
+      "organizer": {
+        "email": "alice@fake.test",
+        "self": true
+      },
+      "iCalUID": "x@google.com",
+      "sequence": 0,
+      "reminders": {
+        "useDefault": true
+      },
+      "eventType": "default",
+      "start": {
+        "dateTime": "2026-11-09T14:00:00+07:00"
+      },
+      "end": {
+        "dateTime": "2026-11-09T15:00:00+07:00"
+      },
+      "summary": "Dentist"
+    }
+  }
+}

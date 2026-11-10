@@ -1,0 +1,21 @@
+{
+  "id": "drive-files-create",
+  "source": "synthesized",
+  "provenance": "Discovery drive v3 rev 20261106 File (create response, default fields); served by the fake seeded with preset \"default\" for alice@fake.test",
+  "request": {
+    "method": "POST",
+    "path": "/www.googleapis.com/drive/v3/files"
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "kind": "drive#file",
+      "id": "1Pi-5EeK4cwgCh2D3Ztq0ESXh9xmWrqSH",
+      "name": "Plan.txt",
+      "mimeType": "text/plain"
+    }
+  }
+}

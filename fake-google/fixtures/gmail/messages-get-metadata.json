@@ -1,0 +1,47 @@
+{
+  "id": "gmail-messages-get-metadata",
+  "source": "synthesized",
+  "provenance": "Discovery gmail v1 rev 20261102 Message (format=metadata); served by the fake seeded with preset \"default\" for alice@fake.test",
+  "request": {
+    "method": "GET",
+    "path": "/gmail.googleapis.com/gmail/v1/users/me/messages/m-seed-welcome",
+    "query": {
+      "format": "metadata",
+      "metadataHeaders": [
+        "From",
+        "Subject"
+      ]
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "id": "m-seed-welcome",
+      "threadId": "t-m-seed-welcome",
+      "labelIds": [
+        "INBOX",
+        "UNREAD"
+      ],
+      "snippet": "Hello! This mailbox is served by the fake Google.",
+      "sizeEstimate": 271,
+      "historyId": "1001",
+      "internalDate": "1793523600000",
+      "payload": {
+        "mimeType": "text/plain",
+        "headers": [
+          {
+            "name": "From",
+            "value": "\"Fake Google\" <no-reply@fake.test>"
+          },
+          {
+            "name": "Subject",
+            "value": "Welcome to the fake mailbox"
+          }
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,73 @@
+{
+  "name": "@bnqtoan/gws-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Code-mode Google Workspace MCP server: run it locally over stdio, or self-host it on Cloudflare Workers",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vibery-studio/gws-mcp.git"
+  },
+  "homepage": "https://github.com/vibery-studio/gws-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/vibery-studio/gws-mcp/issues"
+  },
+  "bin": {
+    "gws-mcp": "dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "build:local": "tsx build/local.ts",
+    "typecheck": "tsc --noEmit",
+    "types": "wrangler types -c wrangler.example.jsonc",
+    "gen": "tsx scripts/gen-sdk.ts",
+    "gen:check": "tsx scripts/gen-sdk.ts --check",
+    "discovery:fetch": "tsx scripts/fetch-discovery.ts",
+    "dev": "CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false tsx scripts/wrangler.ts main dev --port 8787",
+    "dev:fake": "tsx scripts/wrangler.ts fake dev --port 8788",
+    "dev:e2e": "CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false tsx scripts/wrangler.ts e2e dev --port 8787",
+    "db:migrate:local": "tsx scripts/wrangler.ts main d1 migrations apply DB --local",
+    "db:migrate:e2e:local": "tsx scripts/wrangler.ts e2e d1 migrations apply DB --local",
+    "db:migrate:e2e:remote": "tsx scripts/wrangler.ts e2e d1 migrations apply DB --remote",
+    "e2e": "tsx scripts/e2e/run.ts",
+    "e2e:local": "tsx scripts/e2e-local/run.ts",
+    "deploy": "tsx scripts/wrangler.ts main deploy --env=\"\"",
+    "deploy:fake": "tsx scripts/wrangler.ts fake deploy",
+    "deploy:e2e": "tsx scripts/wrangler.ts e2e deploy --env=\"\"",
+    "secrets:put": "tsx scripts/put-secrets.ts",
+    "setup": "tsx scripts/setup.ts",
+    "update": "tsx scripts/update.ts"
+  },
+  "dependencies": {
+    "@jitl/quickjs-wasmfile-release-sync": "0.32.0",
+    "@modelcontextprotocol/server": "2.4.0",
+    "@napi-rs/keyring": "2.1.2",
+    "acorn": "8.19.0",
+    "quickjs-emscripten-core": "0.32.0",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@cloudflare/codemode": "0.5.6",
+    "@cloudflare/vitest-plugin": "1.6.0",
+    "@cloudflare/workers-oauth-provider": "1.2.4",
+    "@modelcontextprotocol/client": "2.4.0",
+    "@types/node": "22.20.5",
+    "agents": "0.33.0",
+    "esbuild": "0.28.2",
+    "hono": "4.13.17",
+    "tsx": "4.23.15",
+    "typescript": "5.9.3",
+    "vitest": "5.1.0",
+    "wrangler": "4.158.0"
+  }
+}

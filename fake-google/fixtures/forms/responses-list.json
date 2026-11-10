@@ -1,0 +1,50 @@
+{
+  "id": "forms-responses-list",
+  "source": "synthesized",
+  "provenance": "Discovery forms v1 rev 20261107 ListFormResponsesResponse (first page of 2); served by the fake seeded with preset \"default\" for alice@fake.test",
+  "request": {
+    "method": "GET",
+    "path": "/forms.googleapis.com/v1/forms/seed-form-feedback/responses",
+    "query": {
+      "pageSize": "1"
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {},
+    "body": {
+      "responses": [
+        {
+          "formId": "seed-form-feedback",
+          "responseId": "seed-response-1",
+          "createTime": "2026-11-05T02:15:00.000Z",
+          "lastSubmittedTime": "2026-11-05T02:15:00.000Z",
+          "respondentEmail": "dana@fake.test",
+          "answers": {
+            "q-name": {
+              "questionId": "q-name",
+              "textAnswers": {
+                "answers": [
+                  {
+                    "value": "Dana"
+                  }
+                ]
+              }
+            },
+            "q-rating": {
+              "questionId": "q-rating",
+              "textAnswers": {
+                "answers": [
+                  {
+                    "value": "Very"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "nextPageToken": "1"
+    }
+  }
+}

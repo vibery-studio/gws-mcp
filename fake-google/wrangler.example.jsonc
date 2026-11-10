@@ -1,0 +1,25 @@
+// Template for the fake Google Worker used by the E2E Worker. Your own copy is `fake-google/wrangler.jsonc`
+// (gitignored); `npm run dev:fake` / `deploy:fake` use it when it exists, and this file only for local commands.
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "gws-mcp-fake-google",
+  "main": "src/worker.ts",
+  // Pin your Cloudflare account: add "account_id": "<your account id>" in your copy, or set CLOUDFLARE_ACCOUNT_ID.
+  "compatibility_date": "2026-11-01",
+  "workers_dev": true,
+  // No public per-version preview URLs: an old version would keep the same secrets.
+  "preview_urls": false,
+  "durable_objects": {
+    "bindings": [{ "name": "FAKE_STATE", "class_name": "FakeState" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["FakeState"] }],
+  "vars": {
+    // The only redirect URIs the fake's sign-in page sends codes to, matched byte for byte (as a Google client's
+    // registered redirect URIs are). Space-separated. Add your deployed E2E Worker's callback in your copy.
+    "GWS_MCP_CALLBACKS": "http://localhost:8787/google/callback"
+  },
+  // Locally from fake-google/.dev.vars (scripts/dev-secrets.ts); deployed via `wrangler secret put`.
+  "secrets": {
+    "required": ["FAKE_ADMIN_TOKEN", "FAKE_SIGNING_KEY", "FAKE_LOGIN_SECRET"]
+  }
+}

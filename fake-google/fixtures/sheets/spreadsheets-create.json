@@ -1,0 +1,37 @@
+{
+  "id": "sheets-spreadsheets-create",
+  "source": "synthesized",
+  "provenance": "Discovery sheets v4 rev 20261106 Spreadsheet resource",
+  "request": {
+    "method": "POST",
+    "path": "/sheets.googleapis.com/v4/spreadsheets"
+  },
+  "response": {
+    "status": 200,
+    "headers": {},
+    "body": {
+      "spreadsheetId": "x",
+      "properties": {
+        "title": "Budget",
+        "locale": "en_US",
+        "autoRecalc": "ON_CHANGE",
+        "timeZone": "Etc/GMT"
+      },
+      "sheets": [
+        {
+          "properties": {
+            "sheetId": 0,
+            "title": "Sheet1",
+            "index": 0,
+            "sheetType": "GRID",
+            "gridProperties": {
+              "rowCount": 1000,
+              "columnCount": 26
+            }
+          }
+        }
+      ],
+      "spreadsheetUrl": "https://docs.google.com/spreadsheets/d/x/edit"
+    }
+  }
+}

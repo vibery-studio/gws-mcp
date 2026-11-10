@@ -1,0 +1,42 @@
+// Template for the fake-mode E2E Worker (docs/decisions.md O31): gws-mcp in fake mode, bound to the fake Google
+// Worker (fake-google/), with its own D1 and KV. It never talks to real Google and never shares production's
+// resources or secrets. Your own copy is `wrangler.e2e.jsonc` (gitignored); the e2e npm scripts use it when it exists,
+// and this file only for commands that stay on your machine (dev, --local, --dry-run).
+// The production template (wrangler.example.jsonc) has no fake binding; only this config does.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "gws-mcp-e2e",
+  "main": "src/index.ts",
+  // Pin your Cloudflare account: add "account_id": "<your account id>" in your copy, or set CLOUDFLARE_ACCOUNT_ID.
+  "compatibility_date": "2026-11-01",
+  "compatibility_flags": ["nodejs_compat", "nodejs_compat_do_not_populate_process_env"],
+  "workers_dev": true,
+  "preview_urls": false,
+  // Own resources (D1 gws-mcp-e2e, KV gws-mcp-e2e-oauth / gws-mcp-e2e-cache): never the production ids.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "gws-mcp-e2e",
+      "database_id": "00000000-0000-0000-0000-0000000000e2",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "kv_namespaces": [
+    { "binding": "OAUTH_KV", "id": "000000000000000000000000000000e1" },
+    { "binding": "CACHE_KV", "id": "000000000000000000000000000000e2" }
+  ],
+  "worker_loaders": [{ "binding": "LOADER" }],
+  "services": [{ "binding": "FAKE_GOOGLE", "service": "gws-mcp-fake-google" }],
+  "vars": {
+    "GOOGLE_UPSTREAM": "fake",
+    // Where browsers reach the fake's sign-in page: your fake's workers.dev URL in your copy. `wrangler dev` takes
+    // it from .dev.vars instead (http://localhost:8788).
+    "FAKE_GOOGLE_PUBLIC_URL": "https://gws-mcp-fake-google.example.invalid",
+    "GOOGLE_SCOPE_PRESET": "narrow"
+    // The E2E harness (scripts/e2e/target.ts) drives a deployed E2E Worker only when your copy sets
+    // "PUBLIC_BASE_URL" to that Worker's origin.
+  },
+  "secrets": {
+    "required": ["TOKEN_ENC_KEY", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"]
+  }
+}

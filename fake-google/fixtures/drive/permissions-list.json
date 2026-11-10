@@ -1,0 +1,34 @@
+{
+  "id": "drive-permissions-list",
+  "source": "synthesized",
+  "provenance": "Discovery drive v3 rev 20261106 PermissionList; served by the fake seeded with preset \"default\" for alice@fake.test",
+  "request": {
+    "method": "GET",
+    "path": "/www.googleapis.com/drive/v3/files/seed-doc-notes/permissions"
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "kind": "drive#permissionList",
+      "permissions": [
+        {
+          "kind": "drive#permission",
+          "id": "100000000000000000001",
+          "type": "user",
+          "emailAddress": "alice@fake.test",
+          "role": "owner"
+        },
+        {
+          "kind": "drive#permission",
+          "id": "anyoneWithLink",
+          "type": "anyone",
+          "role": "reader",
+          "allowFileDiscovery": false
+        }
+      ]
+    }
+  }
+}

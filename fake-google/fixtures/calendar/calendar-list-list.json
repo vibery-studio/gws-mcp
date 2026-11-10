@@ -1,0 +1,29 @@
+{
+  "id": "calendar-calendarlist-list",
+  "source": "synthesized",
+  "provenance": "Discovery calendar v3 rev 20261102 CalendarList resource",
+  "request": {
+    "method": "GET",
+    "path": "/www.googleapis.com/calendar/v3/users/me/calendarList"
+  },
+  "response": {
+    "status": 200,
+    "headers": {},
+    "body": {
+      "kind": "calendar#calendarList",
+      "etag": "\"fake-list\"",
+      "items": [
+        {
+          "kind": "calendar#calendarListEntry",
+          "etag": "\"fake-alice@fake.test\"",
+          "id": "alice@fake.test",
+          "summary": "alice@fake.test",
+          "timeZone": "Asia/Saigon",
+          "accessRole": "owner",
+          "primary": true,
+          "selected": true
+        }
+      ]
+    }
+  }
+}

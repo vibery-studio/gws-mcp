@@ -1,0 +1,163 @@
+{
+  "id": "slides-presentations-get",
+  "source": "synthesized",
+  "provenance": "Discovery slides v1 rev 20261109 Presentation; served by the fake seeded with preset \"default\" for alice@fake.test",
+  "request": {
+    "method": "GET",
+    "path": "/slides.googleapis.com/v1/presentations/seed-slides-template"
+  },
+  "response": {
+    "status": 200,
+    "headers": {},
+    "body": {
+      "presentationId": "seed-slides-template",
+      "pageSize": {
+        "width": {
+          "magnitude": 9144000,
+          "unit": "EMU"
+        },
+        "height": {
+          "magnitude": 5143500,
+          "unit": "EMU"
+        }
+      },
+      "slides": [
+        {
+          "objectId": "seed-slide-1",
+          "pageType": "SLIDE",
+          "pageElements": [
+            {
+              "objectId": "seed-title",
+              "size": {
+                "width": {
+                  "magnitude": 7620000,
+                  "unit": "EMU"
+                },
+                "height": {
+                  "magnitude": 1000000,
+                  "unit": "EMU"
+                }
+              },
+              "transform": {
+                "scaleX": 1,
+                "scaleY": 1,
+                "translateX": 762000,
+                "translateY": 500000,
+                "unit": "EMU"
+              },
+              "shape": {
+                "shapeType": "TEXT_BOX",
+                "text": {
+                  "textElements": [
+                    {
+                      "endIndex": 25,
+                      "paragraphMarker": {
+                        "style": {}
+                      }
+                    },
+                    {
+                      "endIndex": 25,
+                      "textRun": {
+                        "content": "Certificate for {{name}}\n",
+                        "style": {}
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "objectId": "seed-body",
+              "size": {
+                "width": {
+                  "magnitude": 7620000,
+                  "unit": "EMU"
+                },
+                "height": {
+                  "magnitude": 1000000,
+                  "unit": "EMU"
+                }
+              },
+              "transform": {
+                "scaleX": 1,
+                "scaleY": 1,
+                "translateX": 762000,
+                "translateY": 1700000,
+                "unit": "EMU"
+              },
+              "shape": {
+                "shapeType": "TEXT_BOX",
+                "text": {
+                  "textElements": [
+                    {
+                      "endIndex": 32,
+                      "paragraphMarker": {
+                        "style": {}
+                      }
+                    },
+                    {
+                      "endIndex": 32,
+                      "textRun": {
+                        "content": "Awarded to {{name}} on {{date}}\n",
+                        "style": {}
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "objectId": "seed-slide-2",
+          "pageType": "SLIDE",
+          "pageElements": [
+            {
+              "objectId": "seed-footer",
+              "size": {
+                "width": {
+                  "magnitude": 7620000,
+                  "unit": "EMU"
+                },
+                "height": {
+                  "magnitude": 1000000,
+                  "unit": "EMU"
+                }
+              },
+              "transform": {
+                "scaleX": 1,
+                "scaleY": 1,
+                "translateX": 762000,
+                "translateY": 500000,
+                "unit": "EMU"
+              },
+              "shape": {
+                "shapeType": "TEXT_BOX",
+                "text": {
+                  "textElements": [
+                    {
+                      "endIndex": 21,
+                      "paragraphMarker": {
+                        "style": {}
+                      }
+                    },
+                    {
+                      "endIndex": 21,
+                      "textRun": {
+                        "content": "Thank you, {{name}}!\n",
+                        "style": {}
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ],
+      "title": "Certificate template",
+      "locale": "en",
+      "revisionId": "rev-1"
+    }
+  }
+}

@@ -1,0 +1,68 @@
+{
+  "id": "forms-forms-get",
+  "source": "synthesized",
+  "provenance": "Discovery forms v1 rev 20261107 Form; served by the fake seeded with preset \"default\" for alice@fake.test",
+  "request": {
+    "method": "GET",
+    "path": "/forms.googleapis.com/v1/forms/seed-form-feedback"
+  },
+  "response": {
+    "status": 200,
+    "headers": {},
+    "body": {
+      "formId": "seed-form-feedback",
+      "info": {
+        "title": "Workshop feedback",
+        "documentTitle": "Workshop feedback",
+        "description": "Two questions, two minutes."
+      },
+      "settings": {
+        "emailCollectionType": "VERIFIED"
+      },
+      "items": [
+        {
+          "itemId": "seed-item-name",
+          "title": "Your name",
+          "questionItem": {
+            "question": {
+              "questionId": "q-name",
+              "required": true,
+              "textQuestion": {}
+            }
+          }
+        },
+        {
+          "itemId": "seed-item-rating",
+          "title": "How useful was it?",
+          "questionItem": {
+            "question": {
+              "questionId": "q-rating",
+              "choiceQuestion": {
+                "type": "RADIO",
+                "options": [
+                  {
+                    "value": "Very"
+                  },
+                  {
+                    "value": "Somewhat"
+                  },
+                  {
+                    "value": "Not really"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "revisionId": "00000001",
+      "responderUri": "https://docs.google.com/forms/d/e/seed-form-feedback/viewform",
+      "publishSettings": {
+        "publishState": {
+          "isPublished": true,
+          "isAcceptingResponses": true
+        }
+      }
+    }
+  }
+}

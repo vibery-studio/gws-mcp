@@ -1,0 +1,35 @@
+{
+  "id": "slides-presentations-create",
+  "source": "synthesized",
+  "provenance": "Discovery slides v1 rev 20261109 Presentation; body {title:\"Pitch\"}",
+  "request": {
+    "method": "POST",
+    "path": "/slides.googleapis.com/v1/presentations"
+  },
+  "response": {
+    "status": 200,
+    "headers": {},
+    "body": {
+      "presentationId": "1lQAyinPz52sElVtooFo11OWkxucuNYxfJp7S1-rNSWY",
+      "pageSize": {
+        "width": {
+          "magnitude": 9144000,
+          "unit": "EMU"
+        },
+        "height": {
+          "magnitude": 5143500,
+          "unit": "EMU"
+        }
+      },
+      "slides": [
+        {
+          "objectId": "p",
+          "pageType": "SLIDE"
+        }
+      ],
+      "title": "Pitch",
+      "locale": "en",
+      "revisionId": "rev-1"
+    }
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "id": "sheets-values-append",
+  "source": "synthesized",
+  "provenance": "Discovery sheets v4 rev 20261106 AppendValuesResponse resource",
+  "request": {
+    "method": "POST",
+    "path": "/sheets.googleapis.com/v4/spreadsheets/seed-sheet-budget/values/Sheet1%21A1%3AB1:append",
+    "query": {
+      "valueInputOption": "USER_ENTERED",
+      "insertDataOption": "INSERT_ROWS"
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {},
+    "body": {
+      "spreadsheetId": "seed-sheet-budget",
+      "tableRange": "Sheet1!A1:B2",
+      "updates": {
+        "spreadsheetId": "seed-sheet-budget",
+        "updatedRange": "Sheet1!A3:B3",
+        "updatedRows": 1,
+        "updatedColumns": 2,
+        "updatedCells": 2
+      }
+    }
+  }
+}

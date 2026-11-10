@@ -1,0 +1,27 @@
+{
+  "id": "tasks-tasks-get",
+  "source": "synthesized",
+  "provenance": "Discovery tasks v1 rev 20261108 Task; served by the fake seeded with preset \"default\" for alice@fake.test",
+  "request": {
+    "method": "GET",
+    "path": "/tasks.googleapis.com/tasks/v1/lists/seed-tasklist-default/tasks/seed-task-1"
+  },
+  "response": {
+    "status": 200,
+    "headers": {},
+    "body": {
+      "kind": "tasks#task",
+      "id": "seed-task-1",
+      "etag": "\"fake-1\"",
+      "title": "Book flights",
+      "updated": "2026-11-01T09:00:00.000Z",
+      "selfLink": "https://www.googleapis.com/tasks/v1/lists/seed-tasklist-default/tasks/seed-task-1",
+      "position": "00000000000000000000",
+      "notes": "Hanoi trip",
+      "status": "needsAction",
+      "due": "2026-11-12T00:00:00.000Z",
+      "links": [],
+      "webViewLink": "https://tasks.google.com/task/seed-task-1?sa=6"
+    }
+  }
+}

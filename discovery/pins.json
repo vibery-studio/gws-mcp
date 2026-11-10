@@ -1,0 +1,58 @@
+{
+  "gmail": {
+    "version": "v1",
+    "revision": "20261102",
+    "url": "https://gmail.googleapis.com/$discovery/rest?version=v1",
+    "sha256": "e1c157764453dce0a81abdc43eb255160f9fb8a8a0b8f0b381c71f1d6bc786ec",
+    "bytes": 217716
+  },
+  "drive": {
+    "version": "v3",
+    "revision": "20261106",
+    "url": "https://www.googleapis.com/discovery/v1/apis/drive/v3/rest",
+    "sha256": "7fb63a16ea9795c1b7bc00f75030fc49e8c824594b597f6729aaa419049ea5f0",
+    "bytes": 269768
+  },
+  "calendar": {
+    "version": "v3",
+    "revision": "20261102",
+    "url": "https://www.googleapis.com/discovery/v1/apis/calendar/v3/rest",
+    "sha256": "603ce86c24b556a462513b4142ded42449cd05fb3964e2bf0bbcc6baa9e8d408",
+    "bytes": 172096
+  },
+  "sheets": {
+    "version": "v4",
+    "revision": "20261106",
+    "url": "https://sheets.googleapis.com/$discovery/rest?version=v4",
+    "sha256": "0c5de9006dfaddc67c9eb6a30f4184e5b80e2568b767f83d4f15ab58bf1c2fd2",
+    "bytes": 394571
+  },
+  "docs": {
+    "version": "v1",
+    "revision": "20261106",
+    "url": "https://docs.googleapis.com/$discovery/rest?version=v1",
+    "sha256": "b38db26b43341d3bee793b81cb1a057e4585f3c141c0e8aa0f2291b49a0571d1",
+    "bytes": 276657
+  },
+  "forms": {
+    "version": "v1",
+    "revision": "20261107",
+    "url": "https://forms.googleapis.com/$discovery/rest?version=v1",
+    "sha256": "d5917b269fdbce1901dc66448eef0e6249ef53ab51b3ebe2192d646e6a515122",
+    "bytes": 69010
+  },
+  "tasks": {
+    "version": "v1",
+    "revision": "20261108",
+    "url": "https://tasks.googleapis.com/$discovery/rest?version=v1",
+    "sha256": "d27d25487b3893826a7b4fbca004c540cf89286e7ee25222acc806734a61a7e6",
+    "bytes": 32131
+  },
+  "slides": {
+    "version": "v1",
+    "revision": "20261109",
+    "url": "https://slides.googleapis.com/$discovery/rest?version=v1",
+    "sha256": "2b4cc690d79edf4db02dc332fa0ea74c23bd8f21a8ef30597d1f992625eb69e1",
+    "bytes": 250487
+  }
+}

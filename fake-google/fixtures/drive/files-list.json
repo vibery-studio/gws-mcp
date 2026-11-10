@@ -1,0 +1,42 @@
+{
+  "id": "drive-files-list",
+  "source": "synthesized",
+  "provenance": "Discovery drive v3 rev 20261106 FileList (default fields); served by the fake seeded with preset \"default\" for alice@fake.test",
+  "request": {
+    "method": "GET",
+    "path": "/www.googleapis.com/drive/v3/files",
+    "query": {
+      "q": "trashed = false"
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "kind": "drive#fileList",
+      "incompleteSearch": false,
+      "files": [
+        {
+          "kind": "drive#file",
+          "id": "seed-doc-notes",
+          "name": "Meeting notes",
+          "mimeType": "application/vnd.google-apps.document"
+        },
+        {
+          "kind": "drive#file",
+          "id": "seed-file-readme",
+          "name": "README.txt",
+          "mimeType": "text/plain"
+        },
+        {
+          "kind": "drive#file",
+          "id": "seed-folder-projects",
+          "name": "Projects",
+          "mimeType": "application/vnd.google-apps.folder"
+        }
+      ]
+    }
+  }
+}

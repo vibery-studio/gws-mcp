@@ -1,0 +1,17 @@
+{
+  "id": "sheets-values-clear",
+  "source": "synthesized",
+  "provenance": "Discovery sheets v4 rev 20261106 ClearValuesResponse resource",
+  "request": {
+    "method": "POST",
+    "path": "/sheets.googleapis.com/v4/spreadsheets/seed-sheet-budget/values/Sheet1%21A3%3AB3:clear"
+  },
+  "response": {
+    "status": 200,
+    "headers": {},
+    "body": {
+      "spreadsheetId": "seed-sheet-budget",
+      "clearedRange": "Sheet1!A3:B3"
+    }
+  }
+}

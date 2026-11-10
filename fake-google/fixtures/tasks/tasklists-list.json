@@ -1,0 +1,27 @@
+{
+  "id": "tasks-tasklists-list",
+  "source": "synthesized",
+  "provenance": "Discovery tasks v1 rev 20261108 TaskLists; served by the fake seeded with preset \"default\" for alice@fake.test",
+  "request": {
+    "method": "GET",
+    "path": "/tasks.googleapis.com/tasks/v1/users/@me/lists"
+  },
+  "response": {
+    "status": 200,
+    "headers": {},
+    "body": {
+      "kind": "tasks#taskLists",
+      "etag": "\"fake-tasklists\"",
+      "items": [
+        {
+          "kind": "tasks#taskList",
+          "id": "seed-tasklist-default",
+          "etag": "\"fake-1\"",
+          "title": "My Tasks",
+          "updated": "2026-11-01T09:00:00.000Z",
+          "selfLink": "https://www.googleapis.com/tasks/v1/users/@me/lists/seed-tasklist-default"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,42 @@
+// Template for the production gws-mcp Worker (real Google). Your own copy is `wrangler.jsonc`, which is gitignored:
+// `npm run setup` creates it from this file and fills in the resource ids. The npm scripts use `wrangler.jsonc`
+// when it exists, and this file only for commands that stay on your machine (dev, --local, --dry-run).
+// The test suite reads this file, so keep it free of any deployment's values.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "gws-mcp",
+  "main": "src/index.ts",
+  // Pin your Cloudflare account: add "account_id": "<your account id>" in your copy, or set CLOUDFLARE_ACCOUNT_ID.
+  "compatibility_date": "2026-11-01",
+  // Secrets stay reachable only through `env`, never through process.env (dependencies can read that).
+  "compatibility_flags": ["nodejs_compat", "nodejs_compat_do_not_populate_process_env"],
+  "workers_dev": true,
+  // No public per-version preview URLs: an old version would keep the same bindings and secrets.
+  "preview_urls": false,
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "gws-mcp",
+      // Placeholder: `npm run setup` writes the real id into your copy.
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
+  // Placeholders, distinct on purpose: identical ids would share one local namespace.
+  "kv_namespaces": [
+    { "binding": "OAUTH_KV", "id": "00000000000000000000000000000001" },
+    { "binding": "CACHE_KV", "id": "00000000000000000000000000000002" }
+  ],
+  "worker_loaders": [{ "binding": "LOADER" }],
+  "vars": {
+    "GOOGLE_UPSTREAM": "google",
+    // "narrow" or "full" (restricted Gmail/Drive scopes; see docs). The code default is "narrow".
+    "GOOGLE_SCOPE_PRESET": "narrow"
+    // The public URL is taken from the URL each request arrived on. Set "PUBLIC_BASE_URL": "https://<host>" only to
+    // force one origin (for example a custom domain while workers.dev also routes here).
+  },
+  // Only these keys are loaded from local secret files; also the source for `wrangler types`.
+  "secrets": {
+    "required": ["TOKEN_ENC_KEY", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"]
+  }
+}

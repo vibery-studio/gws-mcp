@@ -1,0 +1,103 @@
+{
+  "id": "gmail-messages-get-full",
+  "source": "synthesized",
+  "provenance": "Discovery gmail v1 rev 20261102 Message (format=full); served by the fake seeded with preset \"default\" for alice@fake.test",
+  "request": {
+    "method": "GET",
+    "path": "/gmail.googleapis.com/gmail/v1/users/me/messages/m-seed-invoice",
+    "query": {
+      "format": "full"
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "id": "m-seed-invoice",
+      "threadId": "t-m-seed-invoice",
+      "labelIds": [
+        "INBOX"
+      ],
+      "snippet": "Your October invoice is attached.",
+      "sizeEstimate": 491,
+      "historyId": "1002",
+      "internalDate": "1793610000000",
+      "payload": {
+        "partId": "",
+        "mimeType": "multipart/mixed",
+        "filename": "",
+        "headers": [
+          {
+            "name": "From",
+            "value": "billing@vendor.example"
+          },
+          {
+            "name": "To",
+            "value": "me@fake.test"
+          },
+          {
+            "name": "Subject",
+            "value": "Invoice 2026-10"
+          },
+          {
+            "name": "Date",
+            "value": "Mon, 02 Nov 2026 09:00:00 +0000"
+          },
+          {
+            "name": "MIME-Version",
+            "value": "1.0"
+          },
+          {
+            "name": "Content-Type",
+            "value": "multipart/mixed; boundary=\"seed-boundary\""
+          }
+        ],
+        "body": {
+          "size": 0
+        },
+        "parts": [
+          {
+            "partId": "0",
+            "mimeType": "text/plain",
+            "filename": "",
+            "headers": [
+              {
+                "name": "Content-Type",
+                "value": "text/plain; charset=\"UTF-8\""
+              }
+            ],
+            "body": {
+              "size": 33,
+              "data": "WW91ciBPY3RvYmVyIGludm9pY2UgaXMgYXR0YWNoZWQu"
+            }
+          },
+          {
+            "partId": "1",
+            "mimeType": "application/pdf",
+            "filename": "invoice.pdf",
+            "headers": [
+              {
+                "name": "Content-Type",
+                "value": "application/pdf; name=\"invoice.pdf\""
+              },
+              {
+                "name": "Content-Disposition",
+                "value": "attachment; filename=\"invoice.pdf\""
+              },
+              {
+                "name": "Content-Transfer-Encoding",
+                "value": "base64"
+              }
+            ],
+            "body": {
+              "size": 15,
+              "data": "JVBERi0xLjQKJWZha2UK"
+            }
+          }
+        ]
+      }
+    }
+  }
+}

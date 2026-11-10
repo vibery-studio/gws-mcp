@@ -1,0 +1,22 @@
+{
+  "id": "docs-documents-batchupdate",
+  "source": "synthesized",
+  "provenance": "Discovery docs v1 rev 20261106 BatchUpdateDocumentResponse resource",
+  "request": {
+    "method": "POST",
+    "path": "/docs.googleapis.com/v1/documents/seed-doc-notes:batchUpdate"
+  },
+  "response": {
+    "status": 200,
+    "headers": {},
+    "body": {
+      "documentId": "seed-doc-notes",
+      "replies": [
+        {}
+      ],
+      "writeControl": {
+        "requiredRevisionId": "rev-2"
+      }
+    }
+  }
+}

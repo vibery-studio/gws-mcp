@@ -1,0 +1,71 @@
+{
+  "id": "gmail-labels-list",
+  "source": "synthesized",
+  "provenance": "Discovery gmail v1 rev 20261102 ListLabelsResponse; served by the fake seeded with preset \"default\" for alice@fake.test",
+  "request": {
+    "method": "GET",
+    "path": "/gmail.googleapis.com/gmail/v1/users/me/labels"
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "labels": [
+        {
+          "id": "INBOX",
+          "name": "INBOX",
+          "type": "system"
+        },
+        {
+          "id": "SENT",
+          "name": "SENT",
+          "type": "system"
+        },
+        {
+          "id": "TRASH",
+          "name": "TRASH",
+          "type": "system"
+        },
+        {
+          "id": "SPAM",
+          "name": "SPAM",
+          "type": "system"
+        },
+        {
+          "id": "DRAFT",
+          "name": "DRAFT",
+          "type": "system"
+        },
+        {
+          "id": "UNREAD",
+          "name": "UNREAD",
+          "type": "system"
+        },
+        {
+          "id": "STARRED",
+          "name": "STARRED",
+          "type": "system"
+        },
+        {
+          "id": "IMPORTANT",
+          "name": "IMPORTANT",
+          "type": "system"
+        },
+        {
+          "id": "CHAT",
+          "name": "CHAT",
+          "type": "system"
+        },
+        {
+          "id": "Label_1",
+          "name": "Projects",
+          "type": "user",
+          "messageListVisibility": "show",
+          "labelListVisibility": "labelShow"
+        }
+      ]
+    }
+  }
+}

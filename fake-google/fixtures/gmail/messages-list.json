@@ -1,0 +1,35 @@
+{
+  "id": "gmail-messages-list",
+  "source": "synthesized",
+  "provenance": "Discovery gmail v1 rev 20261102 ListMessagesResponse; served by the fake seeded with preset \"default\" for alice@fake.test",
+  "request": {
+    "method": "GET",
+    "path": "/gmail.googleapis.com/gmail/v1/users/me/messages",
+    "query": {
+      "maxResults": "10"
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "messages": [
+        {
+          "id": "m-seed-report",
+          "threadId": "t-m-seed-report"
+        },
+        {
+          "id": "m-seed-invoice",
+          "threadId": "t-m-seed-invoice"
+        },
+        {
+          "id": "m-seed-welcome",
+          "threadId": "t-m-seed-welcome"
+        }
+      ],
+      "resultSizeEstimate": 3
+    }
+  }
+}

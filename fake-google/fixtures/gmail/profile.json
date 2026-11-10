@@ -1,0 +1,21 @@
+{
+  "id": "gmail-profile",
+  "source": "synthesized",
+  "provenance": "Discovery gmail v1 rev 20261102 Profile; served by the fake seeded with preset \"default\" for alice@fake.test",
+  "request": {
+    "method": "GET",
+    "path": "/gmail.googleapis.com/gmail/v1/users/me/profile"
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "emailAddress": "alice@fake.test",
+      "messagesTotal": 4,
+      "threadsTotal": 4,
+      "historyId": "1004"
+    }
+  }
+}

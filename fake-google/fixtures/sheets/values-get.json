@@ -1,0 +1,27 @@
+{
+  "id": "sheets-values-get",
+  "source": "synthesized",
+  "provenance": "Discovery sheets v4 rev 20261106 ValueRange resource",
+  "request": {
+    "method": "GET",
+    "path": "/sheets.googleapis.com/v4/spreadsheets/seed-sheet-budget/values/Sheet1%21A1%3AB3"
+  },
+  "response": {
+    "status": 200,
+    "headers": {},
+    "body": {
+      "range": "Sheet1!A1:B3",
+      "majorDimension": "ROWS",
+      "values": [
+        [
+          "Item",
+          "Amount"
+        ],
+        [
+          "Coffee",
+          "4"
+        ]
+      ]
+    }
+  }
+}

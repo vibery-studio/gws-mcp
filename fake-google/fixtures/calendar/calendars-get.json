@@ -1,0 +1,20 @@
+{
+  "id": "calendar-calendars-get",
+  "source": "synthesized",
+  "provenance": "Discovery calendar v3 rev 20261102 Calendar resource",
+  "request": {
+    "method": "GET",
+    "path": "/www.googleapis.com/calendar/v3/calendars/primary"
+  },
+  "response": {
+    "status": 200,
+    "headers": {},
+    "body": {
+      "kind": "calendar#calendar",
+      "etag": "\"fake-alice@fake.test\"",
+      "id": "alice@fake.test",
+      "summary": "alice@fake.test",
+      "timeZone": "Asia/Saigon"
+    }
+  }
+}

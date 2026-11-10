@@ -1,0 +1,15 @@
+.env
+.env.*
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
+*.log
+.claude/hooks/.logs/
+.wrangler/
+node_modules/
+coverage/
+/dist/
+# Operator wrangler configs (account and resource ids, hostnames); the tracked *.example.jsonc are the templates.
+/wrangler.jsonc
+/wrangler.e2e.jsonc
+/fake-google/wrangler.jsonc

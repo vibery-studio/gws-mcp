@@ -1,0 +1,52 @@
+{
+  "id": "drive-files-list-in-folder",
+  "source": "synthesized",
+  "provenance": "Discovery drive v3 rev 20261106 FileList (fields=*); served by the fake seeded with preset \"default\" for alice@fake.test",
+  "request": {
+    "method": "GET",
+    "path": "/www.googleapis.com/drive/v3/files",
+    "query": {
+      "q": "'seed-folder-projects' in parents and trashed = false",
+      "fields": "*"
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "kind": "drive#fileList",
+      "incompleteSearch": false,
+      "files": [
+        {
+          "kind": "drive#file",
+          "id": "seed-file-readme",
+          "name": "README.txt",
+          "mimeType": "text/plain",
+          "parents": [
+            "seed-folder-projects"
+          ],
+          "trashed": false,
+          "starred": false,
+          "createdTime": "2026-11-01T09:00:00.000Z",
+          "modifiedTime": "2026-11-02T09:00:00.000Z",
+          "version": "1",
+          "webViewLink": "https://drive.google.com/file/d/seed-file-readme/view?usp=drivesdk",
+          "size": "27",
+          "sha256Checksum": "f7e82ab03837e85f2a92948e20f249bb966d1a60c5548e3e0eaf4246ee9e88e6",
+          "owners": [
+            {
+              "kind": "drive#user",
+              "displayName": "alice",
+              "emailAddress": "alice@fake.test",
+              "me": true,
+              "permissionId": "100000000000000000001"
+            }
+          ],
+          "ownedByMe": true
+        }
+      ]
+    }
+  }
+}

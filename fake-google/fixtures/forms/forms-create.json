@@ -1,0 +1,31 @@
+{
+  "id": "forms-forms-create",
+  "source": "synthesized",
+  "provenance": "Discovery forms v1 rev 20261107 Form; body {info:{title:\"Signup\"}}",
+  "request": {
+    "method": "POST",
+    "path": "/forms.googleapis.com/v1/forms"
+  },
+  "response": {
+    "status": 200,
+    "headers": {},
+    "body": {
+      "formId": "14aLCaG9gsbbaoGZDJF_J_0VtxcG0VQBpAdmup6WU25Y",
+      "info": {
+        "title": "Signup",
+        "documentTitle": "Signup"
+      },
+      "settings": {
+        "emailCollectionType": "DO_NOT_COLLECT"
+      },
+      "revisionId": "00000001",
+      "responderUri": "https://docs.google.com/forms/d/e/14aLCaG9gsbbaoGZDJF_J_0VtxcG0VQBpAdmup6WU25Y/viewform",
+      "publishSettings": {
+        "publishState": {
+          "isPublished": true,
+          "isAcceptingResponses": true
+        }
+      }
+    }
+  }
+}

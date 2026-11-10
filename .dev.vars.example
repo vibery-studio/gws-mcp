@@ -1,0 +1,5 @@
+# Local overrides for `wrangler dev`. Copy to .dev.vars (gitignored, mode 600) and fill the key.
+# Generate TOKEN_ENC_KEY as 32 random bytes, base64 encoded. Never commit real values.
+PUBLIC_BASE_URL=http://localhost:8787
+FAKE_GOOGLE_PUBLIC_URL=http://localhost:8788
+TOKEN_ENC_KEY=<generate>

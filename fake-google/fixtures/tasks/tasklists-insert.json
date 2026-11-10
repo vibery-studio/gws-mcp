@@ -1,0 +1,21 @@
+{
+  "id": "tasks-tasklists-insert",
+  "source": "synthesized",
+  "provenance": "Discovery tasks v1 rev 20261108 TaskList; body {title:\"Errands\"}, clock 2026-11-10T03:00:00Z",
+  "request": {
+    "method": "POST",
+    "path": "/tasks.googleapis.com/tasks/v1/users/@me/lists"
+  },
+  "response": {
+    "status": 200,
+    "headers": {},
+    "body": {
+      "kind": "tasks#taskList",
+      "id": "AKTYjG4jiRXprgADXmJtLg",
+      "etag": "\"fake-1\"",
+      "title": "Errands",
+      "updated": "2026-11-10T03:00:00.000Z",
+      "selfLink": "https://www.googleapis.com/tasks/v1/users/@me/lists/AKTYjG4jiRXprgADXmJtLg"
+    }
+  }
+}

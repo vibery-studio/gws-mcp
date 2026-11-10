@@ -1,0 +1,199 @@
+{
+  "id": "calendar-events-list",
+  "source": "synthesized",
+  "provenance": "Discovery calendar v3 rev 20261102 Events resource; window is 2026-11-09 in Asia/Saigon",
+  "request": {
+    "method": "GET",
+    "path": "/www.googleapis.com/calendar/v3/calendars/primary/events",
+    "query": {
+      "singleEvents": "true",
+      "orderBy": "startTime",
+      "timeMin": "2026-11-08T17:00:00.000Z",
+      "timeMax": "2026-11-09T17:00:00.000Z"
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {},
+    "body": {
+      "kind": "calendar#events",
+      "etag": "\"fake-events\"",
+      "summary": "alice@fake.test",
+      "updated": "2026-11-09T05:00:00.000Z",
+      "timeZone": "Asia/Saigon",
+      "accessRole": "owner",
+      "defaultReminders": [],
+      "items": [
+        {
+          "kind": "calendar#event",
+          "etag": "\"fake-seed-evt-overnight\"",
+          "id": "seed-evt-overnight",
+          "status": "confirmed",
+          "htmlLink": "https://www.google.com/calendar/event?eid=seed-evt-overnight",
+          "summary": "Overnight maintenance",
+          "created": "2026-11-01T09:00:00.000Z",
+          "updated": "2026-11-01T09:00:00.000Z",
+          "creator": {
+            "email": "alice@fake.test",
+            "self": true
+          },
+          "organizer": {
+            "email": "alice@fake.test",
+            "self": true
+          },
+          "iCalUID": "seed-evt-overnight@google.com",
+          "sequence": 0,
+          "reminders": {
+            "useDefault": true
+          },
+          "eventType": "default",
+          "start": {
+            "dateTime": "2026-11-08T23:00:00+07:00",
+            "timeZone": "Asia/Saigon"
+          },
+          "end": {
+            "dateTime": "2026-11-09T01:30:00+07:00",
+            "timeZone": "Asia/Saigon"
+          }
+        },
+        {
+          "kind": "calendar#event",
+          "etag": "\"fake-seed-evt-today-allday\"",
+          "id": "seed-evt-today-allday",
+          "status": "confirmed",
+          "htmlLink": "https://www.google.com/calendar/event?eid=seed-evt-today-allday",
+          "summary": "Focus day",
+          "created": "2026-11-01T09:00:00.000Z",
+          "updated": "2026-11-01T09:00:00.000Z",
+          "creator": {
+            "email": "alice@fake.test",
+            "self": true
+          },
+          "organizer": {
+            "email": "alice@fake.test",
+            "self": true
+          },
+          "iCalUID": "seed-evt-today-allday@google.com",
+          "sequence": 0,
+          "reminders": {
+            "useDefault": true
+          },
+          "eventType": "default",
+          "start": {
+            "date": "2026-11-09"
+          },
+          "end": {
+            "date": "2026-11-10"
+          }
+        },
+        {
+          "kind": "calendar#event",
+          "etag": "\"fake-seed-evt-today-early\"",
+          "id": "seed-evt-today-early",
+          "status": "confirmed",
+          "htmlLink": "https://www.google.com/calendar/event?eid=seed-evt-today-early",
+          "summary": "Early sync",
+          "created": "2026-11-01T09:00:00.000Z",
+          "updated": "2026-11-01T09:00:00.000Z",
+          "creator": {
+            "email": "alice@fake.test",
+            "self": true
+          },
+          "organizer": {
+            "email": "alice@fake.test",
+            "self": true
+          },
+          "iCalUID": "seed-evt-today-early@google.com",
+          "sequence": 0,
+          "reminders": {
+            "useDefault": true
+          },
+          "eventType": "default",
+          "start": {
+            "dateTime": "2026-11-09T00:30:00+07:00",
+            "timeZone": "Asia/Saigon"
+          },
+          "end": {
+            "dateTime": "2026-11-09T01:00:00+07:00",
+            "timeZone": "Asia/Saigon"
+          }
+        },
+        {
+          "kind": "calendar#event",
+          "etag": "\"fake-seed-evt-today-standup\"",
+          "id": "seed-evt-today-standup",
+          "status": "confirmed",
+          "htmlLink": "https://www.google.com/calendar/event?eid=seed-evt-today-standup",
+          "summary": "Standup",
+          "created": "2026-11-01T09:00:00.000Z",
+          "updated": "2026-11-01T09:00:00.000Z",
+          "creator": {
+            "email": "alice@fake.test",
+            "self": true
+          },
+          "organizer": {
+            "email": "alice@fake.test",
+            "self": true
+          },
+          "iCalUID": "seed-evt-today-standup@google.com",
+          "sequence": 0,
+          "reminders": {
+            "useDefault": true
+          },
+          "eventType": "default",
+          "start": {
+            "dateTime": "2026-11-09T09:00:00+07:00",
+            "timeZone": "Asia/Saigon"
+          },
+          "end": {
+            "dateTime": "2026-11-09T09:30:00+07:00",
+            "timeZone": "Asia/Saigon"
+          },
+          "location": "Room 1",
+          "attendees": [
+            {
+              "email": "bob@fake.test",
+              "responseStatus": "accepted"
+            },
+            {
+              "email": "carol@fake.test",
+              "responseStatus": "needsAction"
+            }
+          ]
+        },
+        {
+          "kind": "calendar#event",
+          "etag": "\"fake-seed-evt-today-late\"",
+          "id": "seed-evt-today-late",
+          "status": "confirmed",
+          "htmlLink": "https://www.google.com/calendar/event?eid=seed-evt-today-late",
+          "summary": "Late call",
+          "created": "2026-11-01T09:00:00.000Z",
+          "updated": "2026-11-01T09:00:00.000Z",
+          "creator": {
+            "email": "alice@fake.test",
+            "self": true
+          },
+          "organizer": {
+            "email": "alice@fake.test",
+            "self": true
+          },
+          "iCalUID": "seed-evt-today-late@google.com",
+          "sequence": 0,
+          "reminders": {
+            "useDefault": true
+          },
+          "eventType": "default",
+          "start": {
+            "dateTime": "2026-11-09T23:00:00+07:00",
+            "timeZone": "Asia/Saigon"
+          },
+          "end": {
+            "dateTime": "2026-11-09T23:30:00+07:00",
+            "timeZone": "Asia/Saigon"
+          }
+        }
+      ]
+    }
+  }
+}

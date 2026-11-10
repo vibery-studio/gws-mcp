@@ -1,0 +1,21 @@
+{
+  "id": "drive-permissions-create",
+  "source": "synthesized",
+  "provenance": "Discovery drive v3 rev 20261106 Permission (create response, default fields); served by the fake seeded with preset \"default\" for alice@fake.test",
+  "request": {
+    "method": "POST",
+    "path": "/www.googleapis.com/drive/v3/files/seed-doc-notes/permissions"
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "kind": "drive#permission",
+      "id": "anyoneWithLink",
+      "type": "anyone",
+      "role": "reader"
+    }
+  }
+}
