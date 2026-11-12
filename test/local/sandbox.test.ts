@@ -12,6 +12,11 @@ const ROOT = path.resolve(import.meta.dirname, "..", "..");
 const OK = (value: unknown) => ({ ok: true, value });
 const echo: SandboxCall = async (name, input) => OK({ name, input });
 
+const DEFAULT_WALL_MS = 5000;
+const NESTED_LIMIT_MS = 30_000;
+// Budget for the two wall-deadline tests: the sum of the runs they make (200 + 200 + 3000 ms) with room to spare.
+const WALL_TEST_MS = 30_000;
+
 /** Runs a snippet through the core's wrapper (the same path as execute) over the local sandbox. */
 function run(code: string, o: { call?: SandboxCall; timeoutMs?: number; cpuMs?: number; memoryBytes?: number; redact?: (t: string) => string } = {}) {
   const sandbox = localSandbox(o.redact ? { redact: o.redact } : {});
@@ -19,7 +24,7 @@ function run(code: string, o: { call?: SandboxCall; timeoutMs?: number; cpuMs?: 
     sandbox,
     code,
     call: o.call ?? echo,
-    timeoutMs: o.timeoutMs ?? 5000,
+    timeoutMs: o.timeoutMs ?? DEFAULT_WALL_MS,
     cpuMs: o.cpuMs ?? 2000,
     memoryBytes: o.memoryBytes ?? EXECUTE_MEMORY_BYTES,
   });
@@ -180,13 +185,31 @@ describe("the local QuickJS sandbox: limits", () => {
 
   it("ends a busy loop at the wall deadline when that comes first, and a snippet that never settles", async () => {
     expect(await run("async () => { for (;;) {} }", { cpuMs: 10_000, timeoutMs: 200 })).toMatchObject({ status: "timed-out", limit: "wall" });
-    const never: SandboxCall = () => new Promise(() => undefined);
-    expect(await run("async () => { console.log('waiting'); await sdk.a.b({}); }", { call: never, timeoutMs: 200 })).toEqual({
-      status: "timed-out",
-      limit: "wall",
-      logs: ["waiting"],
-    });
-  });
+    // The wall budget includes queue and start-up time, so under load the deadline can pass before the snippet's
+    // first line runs. A reached call proves the log ran first; an unreached one allows the deadline to fall before
+    // the log or between the log and the call.
+    let reached = false;
+    const never: SandboxCall = () => {
+      reached = true;
+      return new Promise(() => undefined);
+    };
+    const r = await run("async () => { console.log('waiting'); await sdk.a.b({}); }", { call: never, timeoutMs: 200 });
+    expect(r).toMatchObject({ status: "timed-out", limit: "wall" });
+    expect(reached ? [["waiting"]] : [[], ["waiting"]]).toContainEqual(r.logs);
+  }, WALL_TEST_MS);
+
+  it("keeps the logs written before the wall deadline when the run is killed", async () => {
+    let resolveReached: () => void = () => undefined;
+    const reached = new Promise<void>((resolve) => (resolveReached = resolve));
+    const never: SandboxCall = () => {
+      resolveReached();
+      return new Promise(() => undefined);
+    };
+    // The wall budget is far beyond start-up, so the snippet always reaches its call before the deadline.
+    const r = await run("async () => { console.log('waiting'); await sdk.a.b({}); }", { call: never, timeoutMs: 3000 });
+    await expect(Promise.race([reached, Promise.resolve("not-reached")])).resolves.toBeUndefined();
+    expect(r).toEqual({ status: "timed-out", limit: "wall", logs: ["waiting"] });
+  }, WALL_TEST_MS);
 
   it("the interrupt cannot be caught by the snippet", async () => {
     const r = await run("async () => { for (;;) { try { for (;;) {} } catch (e) {} } }", { cpuMs: 200 });
@@ -219,10 +242,11 @@ describe("the local QuickJS sandbox: limits", () => {
       message: "the snippet exceeded the stack limit",
     });
     const nested = "async () => { let o = {}; let c = o; for (let i = 0; i < 300000; i++) { c.a = {}; c = c.a; } return JSON.stringify(o).length; }";
-    expect(await run(nested)).toMatchObject({ status: "threw", message: "the snippet exceeded the stack limit" });
+    // Building 300000 nested objects is slow under CPU contention, so this run gets looser interpreter and wall limits.
+    expect(await run(nested, { cpuMs: NESTED_LIMIT_MS, timeoutMs: NESTED_LIMIT_MS })).toMatchObject({ status: "threw", message: "the snippet exceeded the stack limit" });
     // A run after a host-level stack failure starts from a fresh instance and works.
     expect(returned(await run("async () => 'fine'"))).toBe("fine");
-  });
+  }, 2 * DEFAULT_WALL_MS + NESTED_LIMIT_MS + 15_000); // two runs at the default wall limit and one at NESTED_LIMIT_MS, plus a margin
 
   it("refuses limits it cannot enforce, as a host failure (never runs with a looser one)", async () => {
     const sandbox = localSandbox();
@@ -285,7 +309,7 @@ describe("the local QuickJS sandbox: lifecycle and redaction", () => {
     expect(ends.map((e) => e.terminated)).toEqual(cases.map(() => true));
     // The last run was ended by the main thread at the deadline: its thread was terminated, not left to dispose.
     expect(ends.slice(0, 4).map((e) => e.disposed)).toEqual([true, true, true, true]);
-  });
+  }, 4 * DEFAULT_WALL_MS + 1000 + 15_000); // four runs at the default wall limit and one at 1000 ms, plus a margin
 
   it("drops a host reply that arrives after the run ended", async () => {
     let release: (() => void) | undefined;

@@ -1,9 +1,11 @@
 import { AuthorizationError, CimdFetchError, type AuthRequest } from "@cloudflare/workers-oauth-provider";
 import { Hono } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
-import { SERVICE_SCOPES, loadConfig, type Config } from "../config";
+import { DEFAULT_CONNECT_SERVICES, SERVICE_SCOPES, loadConfig, type Config } from "../config";
 import { GwsError, isGwsError } from "../errors";
 import { openStore, type Account, type Store } from "../store/db";
+import { openAccessStore } from "../store/access";
+import { admitSignIn } from "./access";
 import { displayClientName, oauthApi, recordApproval } from "./clients";
 import { setFlash } from "../web/flash";
 import { PAGE_CSP, renderMessagePage } from "../web/ui";
@@ -50,6 +52,10 @@ function formStrings(value: unknown): string[] {
   return values.filter((v): v is string => typeof v === "string");
 }
 
+/** The sign-in answer for an email no access rule allows. */
+export const PRIVATE_TITLE = "This gws-mcp is private";
+export const PRIVATE_MESSAGE = "This gws-mcp is private. Ask its owner to add your email.";
+
 const FLOW_FAILURE: Record<GoogleFlowError["reason"], { status: ContentfulStatusCode; message: string }> = {
   state: { status: 400, message: "This sign-in link expired, was already used, or was opened in another browser. Start again." },
   denied: { status: 400, message: "Google sign-in was cancelled or failed. Start again." },
@@ -73,20 +79,26 @@ function maySignIn(account: Account, policy: Config["LOGIN_ACCOUNTS"]): boolean 
   return policy === "active" && account.status === "active";
 }
 
-type SignIn = { kind: "returning"; userId: string } | { kind: "new"; userId: string } | { kind: "refused" };
+type SignIn = { kind: "returning"; userId: string } | { kind: "new"; userId: string } | { kind: "refused" } | { kind: "private" };
 
 /**
  * The gws-mcp user behind a Google identity. Lookup is by Google `sub` only: a reissued address has a new
  * sub and must never inherit the old owner's user. A known sub signs in per `maySignIn`. A new sub becomes
  * a new user (`u_<sub>`) whose account has no token yet (`reconnect`; sign-in never stores one); an email
  * already used by another account fails with GWS_ACCOUNT_TAKEN before anything is created.
+ * Either way the access allowlist must admit the sign-in (`admitSignIn`) before any user is created or session
+ * started; on an empty allowlist this first successful sign-in becomes its admin.
  */
-async function signInUser(store: Store, config: Config, r: GoogleAuthResult): Promise<SignIn> {
+async function signInUser(env: Env, store: Store, config: Config, r: GoogleAuthResult): Promise<SignIn> {
   const existing = await store.accounts.findBySub(r.sub);
-  if (existing) return maySignIn(existing, config.LOGIN_ACCOUNTS) ? { kind: "returning", userId: existing.userId } : { kind: "refused" };
-  if (await store.accounts.emailInUse(r.email)) {
-    throw new GwsError("GWS_ACCOUNT_TAKEN", "this Google account is already connected to another user");
-  }
+  if (existing && !maySignIn(existing, config.LOGIN_ACCOUNTS)) return { kind: "refused" };
+  // The access list is checked before "already connected", so someone it does not admit learns nothing about which
+  // addresses are in use. An address in use never bootstraps the list: that sign-in is refused below anyway.
+  const taken = !existing && (await store.accounts.emailInUse(r.email));
+  const userId = existing?.userId ?? `u_${r.sub}`;
+  if (!(await admitSignIn(env, { email: r.email, userId, existingUser: existing !== null, mayBootstrap: !taken }))) return { kind: "private" };
+  if (taken) throw new GwsError("GWS_ACCOUNT_TAKEN", "this Google account is already connected to another user");
+  if (existing) return { kind: "returning", userId: existing.userId };
   const user = await store.users.create({ sub: r.sub, email: r.email });
   await store.accounts.upsertConnected({ userId: user.id, email: r.email, sub: r.sub, scopes: r.scopes });
   return { kind: "new", userId: user.id };
@@ -116,7 +128,8 @@ authRoutes.get("/google/callback", async (c) => {
   try {
     if (result.purpose === "login") {
       const config = loadConfig(c.env);
-      const signedIn = await signInUser(store, config, result);
+      const signedIn = await signInUser(c.env, store, config, result);
+      if (signedIn.kind === "private") return messagePage(c, 403, PRIVATE_TITLE, PRIVATE_MESSAGE);
       if (signedIn.kind === "refused") {
         return messagePage(
           c,
@@ -133,7 +146,7 @@ authRoutes.get("/google/callback", async (c) => {
       return startGoogleAuth(c, {
         purpose: "connect",
         userId: signedIn.userId,
-        scopes: Object.values(SERVICE_SCOPES[config.GOOGLE_SCOPE_PRESET]).flat(),
+        scopes: DEFAULT_CONNECT_SERVICES.flatMap((s) => SERVICE_SCOPES[config.GOOGLE_SCOPE_PRESET][s]),
         loginHint: result.email,
         next: result.next,
       });
@@ -232,6 +245,11 @@ authRoutes.post("/authorize", async (c) => {
   const form = await c.req.parseBody({ all: true });
   if (!csrfMatches(session, form.csrf)) {
     return messagePage(c, 403, "Request refused", "This form did not come from this site. Start again from your app.");
+  }
+  // Read fresh, not from the per-isolate cache: an approval recorded after a removal's kill switch ran would outlive
+  // it, so a person removed elsewhere within the last minute must not approve a new AI app here.
+  if ((await openAccessStore(c.env.DB).roleForUser(session.userId)) === null) {
+    return messagePage(c, 403, PRIVATE_TITLE, PRIVATE_MESSAGE);
   }
   const handle = typeof form.handle === "string" ? form.handle : "";
   const api = oauthApi(c.env);

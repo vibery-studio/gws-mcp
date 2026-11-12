@@ -9,7 +9,7 @@ import path from "node:path";
 import type { Client } from "@modelcontextprotocol/client";
 import { FAKE_CLIENT_SECRET } from "../../src/config";
 import { redact } from "../../src/core/redact";
-import { done03, done04, done05, done07, done08, done09, done10, execute, tools } from "./checks";
+import { done03, done04, done05, done07, done08, done09, done10, execute, marketingServices, tools } from "./checks";
 import { addAccount, openServe, requireBundle, runCommand, type AddOutcome } from "./cli";
 import { FakeControl, startFakeServer, type FakeServer } from "./fake-server";
 
@@ -17,6 +17,11 @@ const MAX_EVIDENCE_CHARS = 240;
 /** Limits this run sets in the settings file: a short host deadline, and a call input cap the bridge must apply. */
 const EXECUTE_TIMEOUT_MS = 10_000;
 const CALL_INPUT_MAX_BYTES = 2_000_000;
+/**
+ * The marketing services connected to account a besides the original eight. Google Ads, Groups and Analytics editing
+ * are never part of a plain `accounts add`, so they are named here, as a user would.
+ */
+const OPT_IN_SERVICES = "searchconsole,analytics,analyticsadmin,ads,groups,tagmanager";
 /** Read from stdin by `setup`; the fake upstream never receives them (it has its own client). */
 const CLIENT_ID = "e2e-local-client.apps.googleusercontent.com";
 const CLIENT_SECRET = `e2e-local-secret-${crypto.randomUUID()}`;
@@ -109,7 +114,7 @@ async function setupAndAccounts(state: {
     o.startAgainStatus === 410 && o.noCookieStatus === 400 && o.forgedStatus === 400 && o.callbackStatus === 200 && o.reachableFromLan !== true && !o.openAfter;
   const unconfirmed = await addAccount(mainDir, fake, emails.a, ["--services", "gmail"]);
   r.check(unconfirmed.code === 2 && unconfirmed.err.includes(`Connect "${emails.a}" to gws-mcp?`), `a new account without --yes (no terminal) -> exit ${unconfirmed.code}, not connected`);
-  const addA = await addAccount(mainDir, fake, emails.a, ["--services", "gmail,drive,calendar,sheets,docs,forms,tasks,slides", "--yes"]);
+  const addA = await addAccount(mainDir, fake, emails.a, ["--services", `gmail,drive,calendar,sheets,docs,forms,tasks,slides,${OPT_IN_SERVICES}`, "--yes"]);
   const challenge = new URL(addA.authUrl).searchParams;
   r.check(addA.code === 0 && addA.redirect.hostname === "127.0.0.1" && Number(addA.redirect.port) > 0, `accounts add a (Desktop): ${describe(addA)}`);
   r.check(challenge.get("code_challenge_method") === "S256" && /^[A-Za-z0-9_-]{43}$/.test(challenge.get("state") ?? ""), "Google's URL (behind the start link) carries PKCE S256 and a 43-character state");
@@ -154,6 +159,7 @@ const CHECKS: readonly Check[] = [
   ["DONE-3", done03],
   ["DONE-4", done04],
   ["DONE-5", done05],
+  ["SERVICES (Search Console, Analytics, Ads, Groups, Tag Manager reads)", marketingServices],
   ["DONE-7", done07],
   ["DONE-9", done09],
   ["DONE-10", done10],
@@ -165,6 +171,7 @@ const SKIPPED = [
   "Done 1 (401 without a token): stdio has no HTTP or bearer token; the stdio process is the user's own",
   "Done 2 (client consent page, revocation): local mode has no MCP client approval layer",
   "Done 6 (per-client account allowlists): one local user, every connected account is available",
+  "Access list (deny, allow, removal): local mode keeps the table but enforces no list, because it serves only the person running it; the deployed E2E covers it",
   "Done 9 (moved row no longer decrypts): one local user; the AAD binding is unchanged shared code",
   "Done 18 keychain: this run uses the key file so the OS keychain is never touched; the keychain path is covered by test/local with a fake keyring and the opt-in real-keychain test",
 ];

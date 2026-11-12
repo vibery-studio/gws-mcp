@@ -1,6 +1,7 @@
 import type { Context } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { z } from "zod";
+import { userRoleOrNull } from "./access";
 
 /** Every web route runs with the full Worker env (the OAuth provider adds its helpers to it). */
 export type AppContext = Context<{ Bindings: Env }>;
@@ -74,7 +75,12 @@ export async function createSession(c: AppContext, userId: string, now = Date.no
   return session;
 }
 
-/** The signed-in session, or null when the cookie is absent, malformed, unknown or expired. */
+/**
+ * The signed-in session, or null when the cookie is absent, malformed, unknown or expired, or when no access rule
+ * allows its user any more (rechecked through the per-isolate cache, so within a minute of a removal; a failed
+ * lookup counts as not allowed). Every page and form gate reads the session here, so a removed user's session ends
+ * with their rule.
+ */
 export async function getSession(c: AppContext, now = Date.now()): Promise<Session | null> {
   const id = getCookie(c, SESSION_COOKIE, "host");
   if (!isRandomToken(id)) return null;
@@ -88,6 +94,7 @@ export async function getSession(c: AppContext, now = Date.now()): Promise<Sessi
   }
   const r = SessionRecord.safeParse(parsed);
   if (!r.success || r.data.exp <= now) return null;
+  if ((await userRoleOrNull(c.env, r.data.userId, now)) === null) return null;
   return r.data;
 }
 

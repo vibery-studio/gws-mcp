@@ -1,0 +1,28 @@
+{
+  "id": "analytics-datastreams-list",
+  "source": "synthesized",
+  "provenance": "Discovery analyticsadmin v1beta rev 20261109 ListDataStreamsResponse; served by the fake seeded with preset \"default\" for alice@fake.test",
+  "request": {
+    "method": "GET",
+    "path": "/analyticsadmin.googleapis.com/v1beta/properties/2001/dataStreams"
+  },
+  "response": {
+    "status": 200,
+    "headers": {},
+    "body": {
+      "dataStreams": [
+        {
+          "name": "properties/2001/dataStreams/3001",
+          "type": "WEB_DATA_STREAM",
+          "displayName": "Example web",
+          "webStreamData": {
+            "measurementId": "G-FAKE000001",
+            "defaultUri": "https://example.test"
+          },
+          "createTime": "2026-09-01T00:00:00.000Z",
+          "updateTime": "2026-09-01T00:00:00.000Z"
+        }
+      ]
+    }
+  }
+}

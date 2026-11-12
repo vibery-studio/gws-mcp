@@ -1,0 +1,152 @@
+{
+  "id": "tagmanager-versions-publish",
+  "source": "synthesized",
+  "provenance": "Discovery tagmanager v2 rev 20261111 PublishContainerVersionResponse; served by the fake seeded with preset \"default\" for alice@fake.test",
+  "request": {
+    "method": "POST",
+    "path": "/tagmanager.googleapis.com/tagmanager/v2/accounts/6001001001/containers/9001001/versions/2:publish"
+  },
+  "response": {
+    "status": 200,
+    "headers": {},
+    "body": {
+      "containerVersion": {
+        "path": "accounts/6001001001/containers/9001001/versions/2",
+        "accountId": "6001001001",
+        "containerId": "9001001",
+        "containerVersionId": "2",
+        "name": "Add signup",
+        "description": "Track signups",
+        "container": {
+          "path": "accounts/6001001001/containers/9001001",
+          "accountId": "6001001001",
+          "containerId": "9001001",
+          "name": "Example site",
+          "domainName": [
+            "example.test"
+          ],
+          "publicId": "GTM-AB12CD",
+          "tagIds": [
+            "GTM-AB12CD"
+          ],
+          "usageContext": [
+            "web"
+          ],
+          "notes": "The public website",
+          "tagManagerUrl": "https://tagmanager.google.com/#/container/accounts/6001001001/containers/9001001",
+          "fingerprint": "734378898"
+        },
+        "tag": [
+          {
+            "path": "accounts/6001001001/containers/9001001/workspaces/1/tags/1",
+            "accountId": "6001001001",
+            "containerId": "9001001",
+            "workspaceId": "1",
+            "tagId": "1",
+            "name": "Page view pixel",
+            "type": "html",
+            "parameter": [
+              {
+                "type": "template",
+                "key": "html",
+                "value": "<script>window.seen = true;</script>"
+              }
+            ],
+            "firingTriggerId": [
+              "1"
+            ],
+            "tagFiringOption": "oncePerEvent",
+            "tagManagerUrl": "https://tagmanager.google.com/#/container/accounts/6001001001/containers/9001001/workspaces/1/tags/1?apiLink=tag",
+            "fingerprint": "4031689433"
+          },
+          {
+            "path": "accounts/6001001001/containers/9001001/workspaces/1/tags/2",
+            "accountId": "6001001001",
+            "containerId": "9001001",
+            "workspaceId": "1",
+            "tagId": "2",
+            "name": "Signup event",
+            "type": "html",
+            "parameter": [
+              {
+                "type": "template",
+                "key": "html",
+                "value": "<b>signup</b>"
+              }
+            ],
+            "firingTriggerId": [
+              "2"
+            ],
+            "tagManagerUrl": "https://tagmanager.google.com/#/container/accounts/6001001001/containers/9001001/workspaces/1/tags/2?apiLink=tag",
+            "fingerprint": "2075938918"
+          }
+        ],
+        "trigger": [
+          {
+            "path": "accounts/6001001001/containers/9001001/workspaces/1/triggers/1",
+            "accountId": "6001001001",
+            "containerId": "9001001",
+            "workspaceId": "1",
+            "triggerId": "1",
+            "name": "All pages",
+            "type": "pageview",
+            "tagManagerUrl": "https://tagmanager.google.com/#/container/accounts/6001001001/containers/9001001/workspaces/1/triggers/1?apiLink=trigger",
+            "fingerprint": "239275356"
+          },
+          {
+            "path": "accounts/6001001001/containers/9001001/workspaces/1/triggers/2",
+            "accountId": "6001001001",
+            "containerId": "9001001",
+            "workspaceId": "1",
+            "triggerId": "2",
+            "name": "Signup click",
+            "type": "click",
+            "tagManagerUrl": "https://tagmanager.google.com/#/container/accounts/6001001001/containers/9001001/workspaces/1/triggers/2?apiLink=trigger",
+            "fingerprint": "2760641980"
+          }
+        ],
+        "variable": [
+          {
+            "path": "accounts/6001001001/containers/9001001/workspaces/1/variables/1",
+            "accountId": "6001001001",
+            "containerId": "9001001",
+            "workspaceId": "1",
+            "variableId": "1",
+            "name": "Page host",
+            "type": "u",
+            "parameter": [
+              {
+                "type": "template",
+                "key": "component",
+                "value": "HOST"
+              }
+            ],
+            "tagManagerUrl": "https://tagmanager.google.com/#/container/accounts/6001001001/containers/9001001/workspaces/1/variables/1?apiLink=variable",
+            "fingerprint": "1318031133"
+          },
+          {
+            "path": "accounts/6001001001/containers/9001001/workspaces/1/variables/2",
+            "accountId": "6001001001",
+            "containerId": "9001001",
+            "workspaceId": "1",
+            "variableId": "2",
+            "name": "Plan",
+            "type": "c",
+            "parameter": [
+              {
+                "type": "template",
+                "key": "value",
+                "value": "pro"
+              }
+            ],
+            "tagManagerUrl": "https://tagmanager.google.com/#/container/accounts/6001001001/containers/9001001/workspaces/1/variables/2?apiLink=variable",
+            "fingerprint": "829192189"
+          }
+        ],
+        "tagManagerUrl": "https://tagmanager.google.com/#/container/accounts/6001001001/containers/9001001/versions/2",
+        "fingerprint": "826426148"
+      },
+      "compilerError": false
+    }
+  }
+}

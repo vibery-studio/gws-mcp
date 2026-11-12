@@ -1,0 +1,42 @@
+{
+  "id": "ads-search-keywords",
+  "source": "synthesized",
+  "provenance": "Discovery googleads v23 rev 20261106 SearchGoogleAdsResponse; served by the fake seeded with preset \"default\" for alice@fake.test",
+  "request": {
+    "method": "POST",
+    "path": "/googleads.googleapis.com/v23/customers/9876543210/googleAds:search"
+  },
+  "response": {
+    "status": 200,
+    "headers": {},
+    "body": {
+      "results": [
+        {
+          "adGroup": {
+            "name": "Brand exact"
+          },
+          "adGroupCriterion": {
+            "resourceName": "customers/9876543210/adGroupCriteria/1001~5001",
+            "keyword": {
+              "text": "example store",
+              "matchType": "EXACT"
+            }
+          }
+        },
+        {
+          "adGroup": {
+            "name": "Brand phrase"
+          },
+          "adGroupCriterion": {
+            "resourceName": "customers/9876543210/adGroupCriteria/1002~5002",
+            "keyword": {
+              "text": "buy example",
+              "matchType": "PHRASE"
+            }
+          }
+        }
+      ],
+      "fieldMask": "adGroup.name,adGroupCriterion.keyword.text,adGroupCriterion.keyword.matchType"
+    }
+  }
+}

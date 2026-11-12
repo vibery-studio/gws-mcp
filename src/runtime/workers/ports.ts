@@ -1,9 +1,13 @@
 import { loadConfig } from "../../config";
 import { SECRET_NAMES } from "../../contracts";
+import type { HumanApprovalPort } from "../../core/human-approval";
 import type { CorePorts, SecretSource } from "../../core/ports";
+import type { SettingLinkPort } from "../../core/setting-links";
 import { createTransport } from "../../google/transport";
+import { openApprovals } from "../../store/approvals";
 import { openStore } from "../../store/db";
 import { getAccessToken, invalidate } from "../../store/token-cache";
+import { openUserSettings } from "../../store/user-settings";
 import { workersSandbox } from "./sandbox";
 
 const SECRET_NAME_SET: ReadonlySet<string> = new Set(SECRET_NAMES);
@@ -25,6 +29,7 @@ export function workersPorts(env: Env): CorePorts {
   const config = loadConfig(env);
   const send = createTransport(env, config);
   const { accounts, grants, audit, rate } = openStore(env);
+  const settings = openUserSettings(env);
   const kv = env.CACHE_KV;
   // Read on each use, never copied: a value is touched only by the code that needs it. Only secret names are
   // answered: the type alone does not stop a caller asking for a binding such as DB or LOADER.
@@ -53,5 +58,18 @@ export function workersPorts(env: Env): CorePorts {
     rate: { hit: rate.hit },
     secrets,
     http: { upstream: config.GOOGLE_UPSTREAM, send },
+    userSettings: { isSet: settings.isSet, get: settings.get, clear: settings.clear },
   };
+}
+
+/** The setting link page's port: the web app serves the page (src/web/pages/setting-link.ts) beside the MCP endpoint. */
+export function workersSettingLinkPort(env: Env): SettingLinkPort {
+  const settings = openUserSettings(env);
+  return { version: settings.version };
+}
+
+/** The approval page's port: the web app serves the page (src/web/pages/approval-link.ts) beside the MCP endpoint. */
+export function workersHumanApprovalPort(env: Env): HumanApprovalPort {
+  const approvals = openApprovals(env);
+  return { claim: approvals.claim };
 }

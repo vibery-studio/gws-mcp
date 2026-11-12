@@ -1,0 +1,24 @@
+{
+  "id": "tagmanager-triggers-create",
+  "source": "synthesized",
+  "provenance": "Discovery tagmanager v2 rev 20261111 Trigger; served by the fake seeded with preset \"default\" for alice@fake.test",
+  "request": {
+    "method": "POST",
+    "path": "/tagmanager.googleapis.com/tagmanager/v2/accounts/6001001001/containers/9001001/workspaces/1/triggers"
+  },
+  "response": {
+    "status": 200,
+    "headers": {},
+    "body": {
+      "path": "accounts/6001001001/containers/9001001/workspaces/1/triggers/2",
+      "accountId": "6001001001",
+      "containerId": "9001001",
+      "workspaceId": "1",
+      "triggerId": "2",
+      "name": "Signup click",
+      "type": "click",
+      "tagManagerUrl": "https://tagmanager.google.com/#/container/accounts/6001001001/containers/9001001/workspaces/1/triggers/2?apiLink=trigger",
+      "fingerprint": "2760641980"
+    }
+  }
+}

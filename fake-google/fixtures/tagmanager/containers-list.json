@@ -1,0 +1,55 @@
+{
+  "id": "tagmanager-containers-list",
+  "source": "synthesized",
+  "provenance": "Discovery tagmanager v2 rev 20261111 ListContainersResponse; served by the fake seeded with preset \"default\" for alice@fake.test",
+  "request": {
+    "method": "GET",
+    "path": "/tagmanager.googleapis.com/tagmanager/v2/accounts/6001001001/containers"
+  },
+  "response": {
+    "status": 200,
+    "headers": {},
+    "body": {
+      "container": [
+        {
+          "path": "accounts/6001001001/containers/9001001",
+          "accountId": "6001001001",
+          "containerId": "9001001",
+          "name": "Example site",
+          "domainName": [
+            "example.test"
+          ],
+          "publicId": "GTM-AB12CD",
+          "tagIds": [
+            "GTM-AB12CD"
+          ],
+          "usageContext": [
+            "web"
+          ],
+          "notes": "The public website",
+          "tagManagerUrl": "https://tagmanager.google.com/#/container/accounts/6001001001/containers/9001001",
+          "fingerprint": "734378898"
+        },
+        {
+          "path": "accounts/6001001001/containers/9001002",
+          "accountId": "6001001001",
+          "containerId": "9001002",
+          "name": "Spare container",
+          "domainName": [
+            "example.test"
+          ],
+          "publicId": "GTM-EF34GH",
+          "tagIds": [
+            "GTM-EF34GH"
+          ],
+          "usageContext": [
+            "web"
+          ],
+          "notes": "Not used yet",
+          "tagManagerUrl": "https://tagmanager.google.com/#/container/accounts/6001001001/containers/9001002",
+          "fingerprint": "929008503"
+        }
+      ]
+    }
+  }
+}

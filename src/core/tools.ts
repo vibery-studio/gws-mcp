@@ -3,16 +3,18 @@ import { GOOGLE_SERVICES, type Config } from "../config";
 import type { AuthProps, FnMeta } from "../contracts";
 import { toWire } from "../errors";
 import { runExecute } from "./execute";
+import type { SessionPortsWithAccess } from "./dispatch";
 import type { CorePorts } from "./ports";
 import { getRegistry, type Registry } from "./registry";
 import { search } from "./search";
+import { describeDestructiveReasons } from "./destructive";
 
 /**
  * The MCP tool definitions both runtimes serve: exactly two tools, `search` and `execute`. Each runtime's MCP
  * wiring registers them, establishes who is calling (`AuthProps`) and supplies its ports.
  */
 
-export const SEARCH_SERVICES = [...GOOGLE_SERVICES, "helpers", "accounts"] as const;
+export const SEARCH_SERVICES = [...GOOGLE_SERVICES, "helpers", "accounts", "access", "settings"] as const;
 /** Input bounds at the MCP boundary. */
 const MAX_QUERY = 500;
 const MAX_FN_NAME = 300;
@@ -23,18 +25,35 @@ export const SEARCH_DESCRIPTION =
   "TypeScript signatures with effect (read/write), an example and a destructive hint. Pass `service` to filter. " +
   "Pass `fn` (an exact name from a result) to get its full TypeScript declaration and scopes instead.";
 
-export const EXECUTE_DESCRIPTION =
-  "Run a JavaScript snippet (an async arrow function) that calls the Google Workspace SDK: " +
-  "`await sdk.<service>.<resource>.<method>(input)`, e.g. `await sdk.gmail.users.messages.list({ userId: 'me' })`. " +
-  "Every input takes an optional `account` (email or alias; the default account otherwise), so one snippet can mix accounts. " +
-  "Only `sdk` and `console` exist; there is no fetch/network, no env and no import. Find functions with the search tool first. " +
-  "Await every sdk call: a call not yet started when the snippet returns is refused. " +
-  "Writes are DRY-RUN unless apply:true; dry-run returns the request plan and flags destructive steps (delete, empty trash, " +
-  "public share, ownership transfer). In dry-run a write returns a pending value; a write that uses it shows as incomplete in the plan. " +
-  "The dry-run plan is advisory, not a guarantee: the snippet runs again under apply:true and code can behave differently there, " +
-  "so review the code itself before applying, not only the plan. Failed calls throw a GwsError with `.code` (e.g. GWS_SCOPE_MISSING, " +
-  "GWS_ACCOUNT_DENIED) and `.details`. Returns {ok, executeId, applied, destructive, result, error, logs, calls, plan, unauditedRefusals}; " +
-  "the result must be JSON and is size-capped, and console output is redacted.";
+/**
+ * The execute tool's description. With `approvalReasons` (GWS_HUMAN_APPROVAL; empty when off) it adds the human
+ * approval flow in one sentence, generated from the list.
+ */
+export function executeDescription(approvalReasons: readonly string[]): string {
+  const approval =
+    approvalReasons.length === 0
+      ? ""
+      : `Steps with reason ${approvalReasons.join(", ")} are marked needsApproval and need the person's own approval: the dry run returns approval.url ` +
+        "for them to open signed in to gws-mcp and approve, then the same code runs once with apply:true within 10 minutes (any change to the code or its inputs needs a new approval; without one apply:true fails with GWS_APPROVAL_REQUIRED and writes nothing). ";
+  return (
+    "Run a JavaScript snippet (an async arrow function) that calls the Google Workspace SDK: " +
+    "`await sdk.<service>.<resource>.<method>(input)`, e.g. `await sdk.gmail.users.messages.list({ userId: 'me' })`. " +
+    "Every input takes an optional `account` (email or alias; the default account otherwise), so one snippet can mix accounts. " +
+    "Only `sdk` and `console` exist; there is no fetch/network, no env and no import. Find functions with the search tool first. " +
+    "Await every sdk call: a call not yet started when the snippet returns is refused. " +
+    "Writes are DRY-RUN unless apply:true; dry-run returns the request plan and flags destructive steps with a reason and plain words: " +
+    `${describeDestructiveReasons()}. ` +
+    approval +
+    "In dry-run a write returns a pending value; a write that uses it shows as incomplete in the plan. " +
+    "The dry-run plan is advisory, not a guarantee: the snippet runs again under apply:true and code can behave differently there, " +
+    "so review the code itself before applying, not only the plan. Failed calls throw a GwsError with `.code` (e.g. GWS_SCOPE_MISSING, " +
+    "GWS_ACCOUNT_DENIED) and `.details`. Returns {ok, executeId, applied, destructive, result, error, logs, calls, plan, approval, unauditedRefusals}; " +
+    "the result must be JSON and is size-capped, and console output is redacted."
+  );
+}
+
+/** The execute tool's description without human approval: the local server's (approval is always off there). */
+export const EXECUTE_DESCRIPTION = executeDescription([]);
 
 export const SearchInput = z.object({
   query: z.string().max(MAX_QUERY),
@@ -93,11 +112,14 @@ export function searchTool(args: z.output<typeof SearchInput>, config: Config, r
   return toolResult(out, false);
 }
 
-/** The `execute` tool, as `auth` over the runtime's `ports`, calling the functions of `registry` (the SDK's by default). */
+/**
+ * The `execute` tool, as `auth` over the runtime's `ports` (with the access list's and the setting link page's ports on
+ * the remote runtime), calling the functions of `registry` (the SDK's by default).
+ */
 export async function executeTool(
   args: z.output<typeof ExecuteInput>,
   auth: AuthProps,
-  ports: CorePorts,
+  ports: CorePorts & Pick<SessionPortsWithAccess, "access" | "settingLinks" | "humanApprovals">,
   config: Config,
   registry?: Registry,
 ): Promise<ToolResult> {

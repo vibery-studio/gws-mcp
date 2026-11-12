@@ -2,8 +2,9 @@ import fs from "node:fs";
 import { createInterface } from "node:readline/promises";
 import type { Readable, Writable } from "node:stream";
 import { parseArgs, type ParseArgsConfig } from "node:util";
-import { GOOGLE_SERVICES, SCOPE_PRESETS, grantedServices, type GoogleService, type ScopePreset } from "../config";
+import { DEFAULT_CONNECT_SERVICES, GOOGLE_SERVICES, SCOPE_PRESETS, grantedServices, type GoogleService, type ScopePreset } from "../config";
 import { revokeAndWipe } from "../core/accounts-capability";
+import { SETTING_KEYS, SETTING_LABELS, isSettingKey, type SettingKey } from "../core/settings-capability";
 import type { Account } from "../core/ports";
 import { GwsError, isGwsError } from "../errors";
 import { createGoogleOAuth } from "../google/oauth";
@@ -32,7 +33,7 @@ import { LOCAL_USER_ID, openLocalStore } from "./store";
 /** The oldest Node.js the package supports: `node:sqlite` without a flag. */
 export const MIN_NODE_VERSION = "22.13.0";
 const GOOGLE_CLIENT_ID_SUFFIX = ".apps.googleusercontent.com";
-/** Longest stdin read for `setup --stdin` (two short lines). */
+/** Longest stdin read for `setup --stdin` (two short lines) and `settings set --stdin` (one). */
 const MAX_STDIN_BYTES = 64 * 1024;
 
 /** Where the CLI reads and writes. Injected, so tests drive it without a terminal, a keychain or a browser. */
@@ -70,11 +71,18 @@ Usage:
       --yes      replace existing choices without asking
   ${self} accounts list
   ${self} accounts add [--services gmail,drive,...] [--account <email>] [--no-browser]
-      Connects a Google account (or adds services to one) in your browser.
+      Connects a Google account (or adds services to one) in your browser. Without --services: ${DEFAULT_CONNECT_SERVICES.join(",")}.
+      Others are added by name: ${GOOGLE_SERVICES.filter((s) => !DEFAULT_CONNECT_SERVICES.includes(s)).join(", ")}.
   ${self} accounts alias <account> <name>     (or --clear)
   ${self} accounts default <account>
   ${self} accounts disconnect <account> [--yes]
       Revokes gws-mcp's access at Google and deletes the stored token.
+  ${self} settings set <key> [--stdin]
+      Saves a Google Ads setting, encrypted like your tokens. The value is asked without echo, or read
+      from the first line of stdin with --stdin. It is never taken as an argument. Keys:
+      ads.developer_token     the developer token from Google Ads (Admin, then API Center)
+      ads.login_customer_id   the manager account ID, if you reach Ads accounts through one
+  ${self} settings clear <key>
   ${self} doctor
       Checks Node.js, the config folder, the key storage, the client and each account.
   ${self} serve
@@ -166,14 +174,14 @@ function readHidden(io: CliIo, question: string): Promise<string> {
   });
 }
 
-/** All of stdin (bounded), for `setup --stdin`. */
-async function readAll(stdin: Readable): Promise<string> {
+/** All of stdin (bounded), for `--stdin`. `tooLong` says what to pipe instead. */
+async function readAll(stdin: Readable, tooLong: string): Promise<string> {
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const chunk of stdin) {
     const b = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk));
     size += b.length;
-    if (size > MAX_STDIN_BYTES) throw new UsageError("stdin is too long: pipe just the client ID and secret, one per line");
+    if (size > MAX_STDIN_BYTES) throw new UsageError(`stdin is too long: ${tooLong}`);
     chunks.push(b);
   }
   return Buffer.concat(chunks).toString("utf8");
@@ -201,7 +209,7 @@ function oneOf<T extends string>(flag: string, value: string, allowed: readonly 
 }
 
 function parseServices(value: string | undefined): GoogleService[] {
-  if (value === undefined) return [...GOOGLE_SERVICES];
+  if (value === undefined) return [...DEFAULT_CONNECT_SERVICES];
   const list = [...new Set(value.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean))];
   if (list.length === 0) throw new UsageError("--services needs at least one service");
   return list.map((s) => oneOf("--services", s, GOOGLE_SERVICES));
@@ -255,7 +263,7 @@ interface Context {
 }
 
 async function withRuntime<T>(ctx: Context, fn: (rt: LocalRuntime) => Promise<T>): Promise<T> {
-  const rt = await openRuntime(ctx.dir, await ctx.keyring(), ctx.self);
+  const rt = await openRuntime(ctx.dir, await ctx.keyring(), ctx.self, ctx.io.env);
   ctx.useRedactor(rt.secrets);
   try {
     return await fn(rt);
@@ -333,7 +341,7 @@ async function setup(ctx: Context, argv: readonly string[]): Promise<number> {
   let clientId: string | undefined;
   let clientSecret: string | undefined;
   if (values.stdin === true) {
-    const lines = (await readAll(io.stdin)).split(/\r?\n/).map((l) => l.trim());
+    const lines = (await readAll(io.stdin, "pipe just the client ID and secret, one per line")).split(/\r?\n/).map((l) => l.trim());
     [clientId = "", clientSecret = ""] = lines;
     if (clientId === "" || clientSecret === "") throw new UsageError("--stdin expects two lines: the client ID, then the client secret");
   } else if (ui.interactive) {
@@ -502,7 +510,7 @@ async function accountsAdd(ctx: Context, argv: readonly string[]): Promise<numbe
     const granted = grantedServices(settings.preset, account.scopes);
     const missing = services.filter((s) => !granted[s]);
     if (missing.length > 0) {
-      ctx.ui.say(`Google did not grant: ${missing.join(", ")} (a box left unticked on the consent screen?). Run ${ctx.self} accounts add again to add them.`);
+      ctx.ui.say(`Google did not grant: ${missing.join(", ")} (a box left unticked on the consent screen?). Run ${ctx.self} accounts add --services ${missing.join(",")} --account ${shellQuote(account.email)} to add them.`);
     }
     if (account.status !== "active") {
       ctx.ui.warn("Google returned no refresh token, so this account cannot be used yet. Disconnect it, then add it again.");
@@ -562,6 +570,45 @@ async function accountsDisconnect(ctx: Context, argv: readonly string[]): Promis
   });
 }
 
+function settingKey(ctx: Context, key: string | undefined, usageLine: string): SettingKey {
+  // An unknown key is never echoed: it may be a value pasted in the wrong place.
+  if (!isSettingKey(key)) throw new UsageError(`usage: ${ctx.self} ${usageLine} (key: ${SETTING_KEYS.join(" or ")})`);
+  return key;
+}
+
+/** `settings set <key>`: the value comes from a hidden prompt or stdin, never argv, and is never printed. */
+async function settingsSet(ctx: Context, argv: readonly string[]): Promise<number> {
+  const { values, positionals } = parse(argv, { stdin: { type: "boolean" } }, 1);
+  const key = settingKey(ctx, positionals[0], "settings set <key> [--stdin]");
+  const label = SETTING_LABELS[key];
+  if (values.stdin !== true && !ctx.ui.interactive) {
+    throw new UsageError(`there is no terminal to ask for the ${label}. Pipe it on one line with --stdin`);
+  }
+  return withRuntime(ctx, async (rt) => {
+    const raw =
+      values.stdin === true
+        ? ((await readAll(ctx.io.stdin, `pipe just the ${label} on one line`)).split(/\r?\n/)[0] ?? "")
+        : await ctx.ui.askHidden(`${label} (nothing is shown as you type)`);
+    const value = raw.trim();
+    if (value === "") throw new UsageError(`no ${label} was given; nothing changed`);
+    // Remembered before anything else is printed, so no later line can show it.
+    rt.secrets.redactor.remember(value);
+    await rt.store.settings.set(LOCAL_USER_ID, key, value);
+    ctx.ui.say(`Saved the ${label}.`);
+    return 0;
+  });
+}
+
+async function settingsClear(ctx: Context, argv: readonly string[]): Promise<number> {
+  const { positionals } = parse(argv, {}, 1);
+  const key = settingKey(ctx, positionals[0], "settings clear <key>");
+  return withRuntime(ctx, async (rt) => {
+    const cleared = await rt.store.settings.clear(LOCAL_USER_ID, key);
+    ctx.ui.say(cleared ? `Removed the saved ${SETTING_LABELS[key]}.` : `No ${SETTING_LABELS[key]} was saved; nothing changed.`);
+    return 0;
+  });
+}
+
 async function doctor(ctx: Context): Promise<number> {
   const { ui, dir } = ctx;
   let failed = false;
@@ -598,7 +645,7 @@ async function doctor(ctx: Context): Promise<number> {
 
   let rt: LocalRuntime;
   try {
-    rt = await openRuntime(dir, await ctx.keyring(), ctx.self);
+    rt = await openRuntime(dir, await ctx.keyring(), ctx.self, ctx.io.env);
   } catch (e) {
     fail(errText(e));
     return 1;
@@ -687,6 +734,12 @@ export async function runCli(io: CliIo): Promise<number> {
         if (sub === "default") return await accountsDefault(ctx, args);
         if (sub === "disconnect") return await accountsDisconnect(ctx, args);
         throw new UsageError(`usage: ${self} accounts list|add|alias|default|disconnect`);
+      }
+      case "settings": {
+        const [sub, ...args] = rest;
+        if (sub === "set") return await settingsSet(ctx, args);
+        if (sub === "clear") return await settingsClear(ctx, args);
+        throw new UsageError(`usage: ${self} settings set|clear <key>`);
       }
       default:
         // Never echoed: it may be a secret pasted in the wrong place.

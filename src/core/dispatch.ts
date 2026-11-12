@@ -1,4 +1,4 @@
-import type { Config } from "../config";
+import type { Config, HumanApprovalReason } from "../config";
 import {
   HOST_CONFIG_KEYS,
   PENDING_TOKEN_PREFIX,
@@ -10,26 +10,59 @@ import {
   type HostConfig,
   type MethodMeta,
   type PlanRequest,
+  type AuditRow,
   type PlanStep,
   type ResolvedAccount,
   type StepId,
+  type UserLink,
 } from "../contracts";
 import { GwsError, isGwsError, toWire, type GwsErrorCode, type WireError } from "../errors";
-import { callGoogle } from "../google/client";
+import { callGoogle, isAdsMethod, adsDeveloperTokenMissing, type AdsHeaders } from "../google/client";
 import { createGoogleOAuth } from "../google/oauth";
-import { buildRequest, describeRequest } from "../google/request";
+import { buildRequest, describeRequest, type BuiltRequest } from "../google/request";
 import type { Transport } from "../google/transport";
+import { createAccessCapability, requireAccessAdmin, type AccessPort } from "./access-capability";
 import { accountDenied, createAccountsCapability } from "./accounts-capability";
 import { AuditBuffer } from "./audit";
-import { isDestructive } from "./destructive";
+import { DESTRUCTIVE_REASON_WORDS, type DestructiveReason, isDestructive, needsDrivePermissionLookup } from "./destructive";
+import {
+  APPROVAL_DIGEST_BOUNDARY,
+  gatedStep,
+  incompleteHostStep,
+  stepDigest,
+  stepNotApproved,
+  type GatedStep,
+  type HumanApprovalPort,
+} from "./human-approval";
 import { CallBudget, UpstreamLimits, approxJsonBytes, capBytes, checkInputSize, checkRate, isBinary } from "./limits";
 import type { Account, SessionPorts } from "./ports";
 import { getRegistry, type Registry } from "./registry";
+import { mintSettingLink, settingLinkMintedRow, type SettingLinkPort } from "./setting-links";
+import { SETTINGS_SET_FN, createSettingsCapability, isSettingKey, settingLinkUnsupported, settingsSetRefused, type SettingKey } from "./settings-capability";
 
 /** Audit and call-record name for a call whose name is not a registered fn: snippet text is never recorded. */
 export const UNKNOWN_FN = "<unknown>";
 
+const ACCESS_PREFIX = "access.";
+
+/**
+ * Only host fns of the access namespace get the access capability (and its admin check). The registry does not tie
+ * this service to the name, so both are checked.
+ */
+function isAccessFn(def: FnDef): boolean {
+  return def.service === "access" && def.kind === "host" && def.name.startsWith(ACCESS_PREFIX);
+}
+
+const SETTINGS_PREFIX = "settings.";
+
+/** Only host fns of the settings namespace get the settings capability. */
+function isSettingsFn(def: FnDef): boolean {
+  return def.service === "settings" && def.kind === "host" && def.name.startsWith(SETTINGS_PREFIX);
+}
+
 const INCOMPLETE_NOTE = "depends on unexecuted write";
+/** Read to tell what kind of Drive permission a change targets. */
+const DRIVE_PERMISSION_GET = "drive.permissions.get";
 const MAX_ISSUES = 5;
 const MAX_ISSUE_TEXT = 200;
 /** A planned request body above this many bytes is stored as its size only, so the plan stays small. */
@@ -43,9 +76,32 @@ const MAX_KEPT_ERRORS = 64;
 /** What one SDK call returns to the sandbox. Never thrown: errors are values. */
 export type DispatchResult = { ok: true; value: unknown } | { __gwsPending: StepId } | { __gwsError: WireError };
 
+/**
+ * The session ports plus the ports only the remote runtime provides: the access list's (the local runtime enforces no
+ * access list), the setting link page's and the approval page's (the local runtime has no web page). Passed through
+ * `runExecute` unchanged, as the same object.
+ */
+export type SessionPortsWithAccess = SessionPorts & {
+  readonly access?: AccessPort;
+  readonly settingLinks?: SettingLinkPort;
+  readonly humanApprovals?: HumanApprovalPort;
+};
+
+/** Steps that need a person's approval (GWS_HUMAN_APPROVAL), for one session. */
+export interface SessionApproval {
+  /** The reasons whose Google writes need the person's approval; never empty. */
+  reasons: ReadonlySet<HumanApprovalReason>;
+  /**
+   * Under apply: the digests of the approved steps, each usable once. A write with a listed reason runs only when its
+   * digest is here; empty or absent, every such write is refused. Ignored in a dry run, which plans such writes,
+   * marks them `needsApproval` and records them in `gatedSteps`.
+   */
+  approved?: Map<string, number>;
+}
+
 export interface CallSessionOptions {
   /** The runtime's ports. Only the dispatcher's own paths use them; host fns get no port, only capabilities. */
-  ports: SessionPorts;
+  ports: SessionPortsWithAccess;
   auth: AuthProps;
   apply: boolean;
   executeId: string;
@@ -54,6 +110,8 @@ export interface CallSessionOptions {
   registry?: Registry;
   /** Clock for timestamps, durations and rate windows. */
   now?: () => number;
+  /** Set when some destructive reasons need a person's approval; absent, no step does. */
+  humanApproval?: SessionApproval;
 }
 
 export interface CloseOptions {
@@ -77,12 +135,22 @@ export interface CallSession {
   /** The most recent error returned by any call. */
   readonly lastError: WireError | undefined;
   /**
+   * Values this session handled that must never appear in the execute's output: the user's Ads developer token it read
+   * for a call, and the text a snippet offered to `settings.set`. The execute redacts them from result, logs and error.
+   * The login customer id is not among them: it is an account number Google returns in Ads data, not a credential.
+   */
+  readonly sensitive: readonly string[];
+  /**
    * Errors calls returned while the snippet could still see them (before `close`), in the order they were returned:
    * the first MAX_KEPT_ERRORS, plus the first of each code after that. Errors caused by the end of the execute (a
    * queued call that `close` released, a call refused after it) are not among them, so they can never stand in for
    * the error the snippet threw.
    */
   readonly errors: readonly WireError[];
+  /** The planned Google writes whose reason needs a person's approval, in plan order (dry run only). */
+  readonly gatedSteps: readonly GatedStep[];
+  /** Buffers an audit row of this execute that is not a call (an approval link made or used); flushed with the rest. */
+  addAudit(row: AuditRow): void;
   /** Writes the buffered audit rows in one batch. Throws GWS_INTERNAL when the write fails. */
   flush(): Promise<void>;
   /**
@@ -98,9 +166,11 @@ export interface CallSession {
 /** Codes that mean the host refused the call by grant or limit policy. */
 const DENIED_CODES: ReadonlySet<GwsErrorCode> = new Set([
   "GWS_ACCOUNT_DENIED",
+  "GWS_ACCESS_ADMIN_REQUIRED",
   "GWS_SCOPE_MISSING",
   "GWS_RATE_LIMITED",
   "GWS_CALL_BUDGET_EXCEEDED",
+  "GWS_APPROVAL_REQUIRED",
 ]);
 
 const PENDING_STEP = /__gws_pending__:(s[1-9][0-9]{0,8})/g;
@@ -279,7 +349,7 @@ function checkScopes(def: FnDef, meta: MethodMeta, account: Account): void {
  * spent: only the first refused call is recorded, so a runaway loop cannot flood the audit batch.
  */
 export function createCallSession(opts: CallSessionOptions): CallSession {
-  const { ports, auth, apply, executeId } = opts;
+  const { ports, auth, apply, executeId, humanApproval } = opts;
   // The OAuth client takes its credentials by the session config's upstream; the transport must target the
   // same upstream, or a google-mode session could send the real client secret to the fake.
   if (ports.http.upstream !== opts.config.GOOGLE_UPSTREAM) {
@@ -303,6 +373,10 @@ export function createCallSession(opts: CallSessionOptions): CallSession {
   let lastError: WireError | undefined;
   const errors: WireError[] = [];
   let appliedDestructive = false;
+  const sensitive = new Set<string>();
+  const gatedSteps: GatedStep[] = [];
+  /** Setting links made in this execute, one per key: a repeated request or error hands out the same link. */
+  const settingLinks = new Map<SettingKey, Promise<UserLink>>();
   let closed = false;
   let closing: Promise<void> | undefined;
 
@@ -316,8 +390,15 @@ export function createCallSession(opts: CallSessionOptions): CallSession {
   function pushStep(s: Omit<PlanStep, "step">): StepId {
     const id: StepId = `s${plan.length + 1}`;
     const step: PlanStep = { step: id, fn: String(s.fn), effect: s.effect === "write" ? "write" : "read", destructive: s.destructive === true };
+    // A destructive step names its reason; one that arrives without (a capability write) gets the reason its name implies.
+    const reason: DestructiveReason | undefined = step.destructive ? (s.reason ?? isDestructive(step.fn).reason) : undefined;
+    if (reason !== undefined) {
+      step.reason = reason;
+      step.reasonText = DESTRUCTIVE_REASON_WORDS[reason];
+    }
     if (typeof s.account === "string") step.account = s.account;
     if (s.request !== undefined) step.request = boundedRequest(s.request);
+    if (s.needsApproval === true) step.needsApproval = true;
     if (s.incomplete === true) step.incomplete = true;
     if (s.dependsOn !== undefined && s.dependsOn.length > 0) step.dependsOn = [...s.dependsOn];
     if (typeof s.note === "string") step.note = s.note;
@@ -352,23 +433,155 @@ export function createCallSession(opts: CallSessionOptions): CallSession {
     return account;
   }
 
-  async function runGoogle(def: FnDef, input: unknown, deps: StepId[] | undefined, destructive: boolean, trace: Trace): Promise<Ran> {
+  /**
+   * A one-time link that lets the user set `key` on the web page (see setting-links.ts): made once per execute and key,
+   * with an audit row. GWS_UNSUPPORTED_RUNTIME without the page (local), GWS_RATE_LIMITED past the per-user limit; a
+   * failed attempt is not kept, so a later call tries again.
+   */
+  function settingLink(key: SettingKey): Promise<UserLink> {
+    const page = ports.settingLinks;
+    if (page === undefined) return Promise.reject(settingLinkUnsupported(key));
+    let link = settingLinks.get(key);
+    if (link === undefined) {
+      link = mintSettingLink(
+        { links: ports.links, rate: ports.rate, port: page, baseUrl: config.PUBLIC_BASE_URL, auth: frozenAuth, executeId, now: now() },
+        key,
+      ).then(({ link: made, record }) => {
+        audit.add(settingLinkMintedRow(record, now()));
+        return made;
+      });
+      settingLinks.set(key, link);
+      link.catch(() => settingLinks.delete(key));
+    }
+    return link;
+  }
+
+  /**
+   * The link an error offers besides its own text, or undefined where none can be made (no web page, the per-user limit
+   * reached, a link store failure). Never fails: the error it decorates is what the caller must get.
+   */
+  async function offeredSettingLink(key: SettingKey): Promise<UserLink | undefined> {
+    if (ports.settingLinks === undefined) return undefined;
+    try {
+      return await settingLink(key);
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * The user's Ads headers, read fresh from the settings store for each call; the developer token is remembered for
+   * redaction. Refuses with GWS_ADS_DEVELOPER_TOKEN_MISSING when no developer token is saved, then with
+   * GWS_SETTING_UNREADABLE (naming the key) when a saved value no longer decrypts: the token first, so the error is
+   * the same whichever read finishes first.
+   */
+  async function adsHeaders(): Promise<AdsHeaders> {
+    const [token, login] = await Promise.allSettled([
+      ports.userSettings.get(frozenAuth.userId, "ads.developer_token"),
+      ports.userSettings.get(frozenAuth.userId, "ads.login_customer_id"),
+    ]);
+    if (token.status === "rejected") throw token.reason;
+    const developerToken = token.value;
+    if (developerToken === null || developerToken === "") throw adsDeveloperTokenMissing(await offeredSettingLink("ads.developer_token"));
+    if (login.status === "rejected") throw login.reason;
+    const loginCustomerId = login.value;
+    sensitive.add(developerToken);
+    return loginCustomerId === null || loginCustomerId === "" ? { developerToken } : { developerToken, loginCustomerId };
+  }
+
+  /** The listed reason of a Google write that needs a person's approval, or undefined. */
+  function approvalReason(def: FnDef, reason: DestructiveReason | undefined): HumanApprovalReason | undefined {
+    if (humanApproval === undefined || def.effect !== "write" || reason === undefined) return undefined;
+    return humanApproval.reasons.has(reason as HumanApprovalReason) ? (reason as HumanApprovalReason) : undefined;
+  }
+
+  /** Records a planned step that needs approval, with the unshortened request and the body bytes its digest covers. */
+  async function recordGated(id: StepId, def: FnDef, account: string, reason: HumanApprovalReason, built: BuiltRequest, incomplete: boolean): Promise<void> {
+    gatedSteps.push(await gatedStep({ step: id, fn: def.name, account, reason, request: describeRequest(built), sentBody: built.body, incomplete }));
+  }
+
+  /**
+   * Under apply, lets a write that needs approval run only as one of the approved steps, each once; otherwise refuses
+   * it before anything is sent. The check and the count change happen in one turn of the event loop, so two
+   * concurrent identical calls cannot both take one approved step.
+   */
+  async function takeApproval(def: FnDef, account: string, reason: HumanApprovalReason, built: BuiltRequest): Promise<void> {
+    const digest = await stepDigest({ fn: def.name, account, reason, request: describeRequest(built), sentBody: built.body });
+    const approved = humanApproval?.approved;
+    const left = approved?.get(digest) ?? 0;
+    if (approved === undefined || left <= 0) throw stepNotApproved(reason, ports.humanApprovals !== undefined);
+    approved.set(digest, left - 1);
+  }
+
+  /**
+   * The type of the Drive permission a change targets (`anyone`, `domain`, `user`, ...), read from Google with the
+   * account's token, or undefined when it cannot be read. A read only: never planned, never a write.
+   */
+  async function drivePermissionType(account: Account, input: unknown): Promise<string | undefined> {
+    const meta = getRegistry().get(DRIVE_PERMISSION_GET)?.method;
+    const { fileId, permissionId } = input as { fileId?: unknown; permissionId?: unknown };
+    if (meta === undefined || typeof fileId !== "string" || typeof permissionId !== "string") return undefined;
+    try {
+      const value = await upstream.run(async () =>
+        callGoogle(meta, { fileId, permissionId, fields: "type", supportsAllDrives: true }, {
+          accessToken: await tokens.getAccessToken(account),
+          transport,
+          maxResponseBytes: config.CALL_RESPONSE_MAX_BYTES,
+        }),
+      );
+      const type = (value as { type?: unknown } | null)?.type;
+      return typeof type === "string" ? type.toLowerCase() : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  async function runGoogle(def: FnDef, input: unknown, deps: StepId[] | undefined, destructive: boolean, reason: DestructiveReason | undefined, trace: Trace): Promise<Ran> {
     const meta = def.method;
     if (!meta) throw new GwsError("GWS_INTERNAL", "google fn without method metadata");
     const account = await allowedAccount(accountRef(input), trace);
     checkScopes(def, meta, account);
     trace.accountEmail = account.email;
+    // A Drive permission change that raises access: a public share when the permission it changes shares with anyone
+    // or a domain. When that cannot be told (unread, or an id still pending), it counts as one.
+    if (needsDrivePermissionLookup(def.name, input)) {
+      const type = deps === undefined ? await drivePermissionType(account, input) : undefined;
+      if (type === undefined || type === "anyone" || type === "domain") {
+        destructive = true;
+        reason = "public-share";
+      }
+    }
+    const gated = approvalReason(def, reason);
 
+    // Built with the digest's fixed multipart boundary: the plan never shows the boundary, and the digest covers the body.
+    const digestOptions = { boundary: APPROVAL_DIGEST_BOUNDARY };
     if (deps !== undefined) {
-      const step: Omit<PlanStep, "step"> = { fn: def.name, account: account.email, effect: def.effect, destructive, incomplete: true, dependsOn: deps };
-      if (def.effect === "write") step.request = describeRequest(buildRequest(meta, input));
+      const step: Omit<PlanStep, "step"> = { fn: def.name, account: account.email, effect: def.effect, destructive, reason, incomplete: true, dependsOn: deps };
+      const built = def.effect === "write" ? buildRequest(meta, input, digestOptions) : undefined;
+      if (built !== undefined) step.request = describeRequest(built);
       else step.note = INCOMPLETE_NOTE;
-      return { kind: "pending", id: pushStep(step) };
+      if (gated !== undefined) step.needsApproval = true;
+      const id = pushStep(step);
+      if (gated !== undefined && built !== undefined) await recordGated(id, def, account.email, gated, built, true);
+      return { kind: "pending", id };
     }
     if (def.effect === "write" && !apply) {
-      const request = describeRequest(buildRequest(meta, input));
-      return { kind: "pending", id: pushStep({ fn: def.name, account: account.email, effect: "write", destructive, request }) };
+      const built = buildRequest(meta, input, digestOptions);
+      const step: Omit<PlanStep, "step"> = { fn: def.name, account: account.email, effect: "write", destructive, reason, request: describeRequest(built) };
+      if (gated !== undefined) step.needsApproval = true;
+      const id = pushStep(step);
+      if (gated !== undefined) await recordGated(id, def, account.email, gated, built, false);
+      return { kind: "pending", id };
     }
+
+    // Build once without a token so input the request builder refuses (a path outside its Discovery pattern, say)
+    // fails before the developer-token read and the token refresh: a refused call makes no Google request at all.
+    const built = buildRequest(meta, input, digestOptions);
+    // A write that needs approval runs only as an approved step: checked before the developer-token read, the token
+    // refresh and the send, so a refused one makes no Google request.
+    if (gated !== undefined) await takeApproval(def, account.email, gated, built);
+    // Read before the token refresh: without a developer token no Google request is made at all.
+    const ads = isAdsMethod(meta) ? await adsHeaders() : undefined;
 
     return upstream.run(async () => {
       const accessToken = await tokens.getAccessToken(account);
@@ -381,7 +594,12 @@ export function createCallSession(opts: CallSessionOptions): CallSession {
         return res;
       };
       try {
-        const value = await callGoogle(meta, input, { accessToken, transport: observed, maxResponseBytes: config.CALL_RESPONSE_MAX_BYTES });
+        const value = await callGoogle(meta, input, {
+          accessToken,
+          transport: observed,
+          maxResponseBytes: config.CALL_RESPONSE_MAX_BYTES,
+          ...(ads !== undefined ? { ads } : {}),
+        });
         upstream.spend(value);
         return { kind: "value", status: "ok", value } satisfies Ran;
       } catch (e) {
@@ -438,13 +656,56 @@ export function createCallSession(opts: CallSessionOptions): CallSession {
         },
       });
     }
+    if (isSettingsFn(def)) {
+      ctx.settings = createSettingsCapability({
+        port: ports.userSettings,
+        auth: frozenAuth,
+        apply,
+        link: settingLink,
+        plan: planStep,
+        applied: () => {
+          trace.applied = true;
+        },
+      });
+    }
+    if (isAccessFn(def)) {
+      ctx.access = createAccessCapability({
+        port: ports.access,
+        auth: frozenAuth,
+        apply,
+        plan: planStep,
+        applied: (destructive) => {
+          trace.applied = true;
+          if (destructive) appliedDestructive = true;
+        },
+      });
+    }
     return Object.freeze(ctx);
   }
 
-  async function runHost(def: FnDef, input: unknown, deps: StepId[] | undefined, destructive: boolean, trace: Trace): Promise<Ran> {
+  async function runHost(def: FnDef, input: unknown, deps: StepId[] | undefined, destructive: boolean, reason: DestructiveReason | undefined, trace: Trace): Promise<Ran> {
     if (!def.run) throw new GwsError("GWS_INTERNAL", "host fn without run");
+    if (def.name === SETTINGS_SET_FN) {
+      // Refused for every input, also one that waits on an unexecuted write. A value the snippet offered is kept only to
+      // redact it from this execute's output; it is never planned, audited or echoed. Nothing is validated: a known key
+      // only picks the setting the offered one-time link sets.
+      const offered = input as { key?: unknown; value?: unknown } | null;
+      if (typeof offered?.value === "string") sensitive.add(offered.value);
+      const key = offered?.key;
+      throw settingsSetRefused(isSettingKey(key) ? await offeredSettingLink(key) : undefined);
+    }
     if (deps !== undefined) {
-      return { kind: "pending", id: pushStep({ fn: def.name, effect: def.effect, destructive, incomplete: true, dependsOn: deps, note: INCOMPLETE_NOTE }) };
+      // A pending call never runs its fn, so the access list's admin check runs here: a non-admin gets the refusal,
+      // never a planned step.
+      if (isAccessFn(def)) await requireAccessAdmin(ports.access, frozenAuth.userId);
+      // A helper whose own input makes it need approval (a public calendar share, say) and that waits on an
+      // unexecuted write cannot be approved as planned: marked, so the dry run says what to do.
+      const gated = approvalReason(def, reason);
+      const step: Omit<PlanStep, "step"> = { fn: def.name, effect: def.effect, destructive, reason, incomplete: true, dependsOn: deps, note: INCOMPLETE_NOTE };
+      if (gated !== undefined) step.needsApproval = true;
+      const id = pushStep(step);
+      if (gated !== undefined) gatedSteps.push(incompleteHostStep(id, def.name, gated));
+      return { kind: "pending", id };
     }
     const scope: HostScope = { active: true, trace };
     let value: unknown;
@@ -465,9 +726,9 @@ export function createCallSession(opts: CallSessionOptions): CallSession {
     // Scan the raw input before validation: a token may stand where a number or an enum value is expected.
     const deps = pendingDeps(input);
     const parsed = deps === undefined ? parseInput(def, input) : parsePending(def, input);
-    const { destructive } = isDestructive(def.name, parsed);
+    const { destructive, reason } = isDestructive(def.name, parsed);
     const ran =
-      def.kind === "google" ? await runGoogle(def, parsed, deps, destructive, trace) : await runHost(def, parsed, deps, destructive, trace);
+      def.kind === "google" ? await runGoogle(def, parsed, deps, destructive, reason, trace) : await runHost(def, parsed, deps, destructive, reason, trace);
     if (ran.kind === "pending") return ran;
     capBytes(ran.value, config.CALL_RESPONSE_MAX_BYTES);
     return { ...ran, value: parseOutput(def, ran.value) };
@@ -608,9 +869,16 @@ export function createCallSession(opts: CallSessionOptions): CallSession {
     get lastError() {
       return lastError;
     },
+    get sensitive() {
+      return [...sensitive];
+    },
     get errors() {
       return errors;
     },
+    get gatedSteps() {
+      return [...gatedSteps].sort((a, b) => Number(a.step.slice(1)) - Number(b.step.slice(1)));
+    },
+    addAudit: (row: AuditRow) => audit.add(row),
     flush: () => audit.flush(ports.audit),
     close(o: CloseOptions = {}) {
       closing ??= closeOnce(o.waitMs ?? config.EXECUTE_TIMEOUT_MS).catch((e: unknown) => {

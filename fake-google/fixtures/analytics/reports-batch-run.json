@@ -1,0 +1,193 @@
+{
+  "id": "analytics-reports-batch-run",
+  "source": "synthesized",
+  "provenance": "Discovery analyticsdata v1beta rev 20261109 BatchRunReportsResponse; served by the fake seeded with preset \"default\" for alice@fake.test",
+  "request": {
+    "method": "POST",
+    "path": "/analyticsdata.googleapis.com/v1beta/properties/2001:batchRunReports"
+  },
+  "response": {
+    "status": 200,
+    "headers": {},
+    "body": {
+      "reports": [
+        {
+          "dimensionHeaders": [
+            {
+              "name": "date"
+            }
+          ],
+          "metricHeaders": [
+            {
+              "name": "sessions",
+              "type": "TYPE_INTEGER"
+            },
+            {
+              "name": "activeUsers",
+              "type": "TYPE_INTEGER"
+            }
+          ],
+          "rows": [
+            {
+              "dimensionValues": [
+                {
+                  "value": "20261101"
+                }
+              ],
+              "metricValues": [
+                {
+                  "value": "198"
+                },
+                {
+                  "value": "162"
+                }
+              ]
+            },
+            {
+              "dimensionValues": [
+                {
+                  "value": "20261102"
+                }
+              ],
+              "metricValues": [
+                {
+                  "value": "210"
+                },
+                {
+                  "value": "162"
+                }
+              ]
+            },
+            {
+              "dimensionValues": [
+                {
+                  "value": "20261103"
+                }
+              ],
+              "metricValues": [
+                {
+                  "value": "222"
+                },
+                {
+                  "value": "186"
+                }
+              ]
+            },
+            {
+              "dimensionValues": [
+                {
+                  "value": "20261104"
+                }
+              ],
+              "metricValues": [
+                {
+                  "value": "234"
+                },
+                {
+                  "value": "186"
+                }
+              ]
+            },
+            {
+              "dimensionValues": [
+                {
+                  "value": "20261105"
+                }
+              ],
+              "metricValues": [
+                {
+                  "value": "198"
+                },
+                {
+                  "value": "162"
+                }
+              ]
+            },
+            {
+              "dimensionValues": [
+                {
+                  "value": "20261106"
+                }
+              ],
+              "metricValues": [
+                {
+                  "value": "210"
+                },
+                {
+                  "value": "162"
+                }
+              ]
+            },
+            {
+              "dimensionValues": [
+                {
+                  "value": "20261107"
+                }
+              ],
+              "metricValues": [
+                {
+                  "value": "222"
+                },
+                {
+                  "value": "186"
+                }
+              ]
+            }
+          ],
+          "rowCount": 7,
+          "metadata": {
+            "currencyCode": "USD",
+            "timeZone": "Asia/Saigon"
+          },
+          "kind": "analyticsData#runReport"
+        },
+        {
+          "dimensionHeaders": [
+            {
+              "name": "country"
+            }
+          ],
+          "metricHeaders": [
+            {
+              "name": "screenPageViews",
+              "type": "TYPE_INTEGER"
+            }
+          ],
+          "rows": [
+            {
+              "dimensionValues": [
+                {
+                  "value": "United States"
+                }
+              ],
+              "metricValues": [
+                {
+                  "value": "1746"
+                }
+              ]
+            },
+            {
+              "dimensionValues": [
+                {
+                  "value": "Vietnam"
+                }
+              ],
+              "metricValues": [
+                {
+                  "value": "1326"
+                }
+              ]
+            }
+          ],
+          "rowCount": 2,
+          "metadata": {
+            "currencyCode": "USD",
+            "timeZone": "Asia/Saigon"
+          },
+          "kind": "analyticsData#runReport"
+        }
+      ],
+      "kind": "analyticsData#batchRunReports"
+    }
+  }
+}

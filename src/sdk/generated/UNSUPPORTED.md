@@ -2,8 +2,14 @@
 
 Discovery methods that are not generated, with the reason. Produced by scripts/gen-sdk.ts. Do not edit.
 
+Only these methods are considered for the apis below. Every other method of those documents is omitted by the allowlist and counted in no total.
+
+- admin: `directory.groups.*`, `directory.members.*`
+- googleads: `googleads.customers.listAccessibleCustomers`, `googleads.customers.googleAds.search`, `googleads.customers.googleAds.searchStream`, `*.mutate`
+
 | method | reason |
 |---|---|
+| analyticsadmin.accounts.searchChangeHistoryEvents | parameter name account collides with a reserved input key |
 | calendar.acl.watch | push notification channel; needs a public receiver |
 | calendar.calendarList.watch | push notification channel; needs a public receiver |
 | calendar.channels.stop | push notification channel; needs a public receiver |
@@ -29,4 +35,11 @@ Discovery methods that are not generated, with the reason. Produced by scripts/g
 - forms: 6 supported, 4 unsupported, 10 total
 - tasks: 14 supported, 0 unsupported, 14 total
 - slides: 5 supported, 0 unsupported, 5 total
-- all: 216 supported, 14 unsupported, 230 total
+- searchconsole: 11 supported, 0 unsupported, 11 total
+- analyticsdata: 11 supported, 0 unsupported, 11 total
+- analyticsadmin: 54 supported, 1 unsupported, 55 total
+- admin: 16 supported, 0 unsupported, 16 total
+- groupssettings: 3 supported, 0 unsupported, 3 total
+- tagmanager: 106 supported, 0 unsupported, 106 total
+- googleads: 81 supported, 0 unsupported, 81 total
+- all: 498 supported, 15 unsupported, 513 total

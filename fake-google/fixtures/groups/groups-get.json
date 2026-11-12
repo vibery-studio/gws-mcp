@@ -1,0 +1,22 @@
+{
+  "id": "groups-groups-get",
+  "source": "synthesized",
+  "provenance": "Discovery admin directory_v1 rev 20261109 Group; served by the fake seeded with preset \"default\" for alice@fake.test",
+  "request": {
+    "method": "GET",
+    "path": "/admin.googleapis.com/admin/directory/v1/groups/seed-group-team"
+  },
+  "response": {
+    "status": 200,
+    "headers": {},
+    "body": {
+      "kind": "admin#directory#group",
+      "id": "seed-group-team",
+      "email": "team@fake.test",
+      "name": "Team",
+      "description": "Everyone on the team",
+      "directMembersCount": "3",
+      "adminCreated": true
+    }
+  }
+}

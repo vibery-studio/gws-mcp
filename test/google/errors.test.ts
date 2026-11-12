@@ -68,6 +68,42 @@ describe("mapUpstreamError", () => {
     expect(e.details).toEqual({ status: 403, reason: "forbidden", googleStatus: "PERMISSION_DENIED" });
   });
 
+  it.each([
+    ["forbidden", envelope({ code: 403, status: "PERMISSION_DENIED", errors: [{ domain: "global", reason: "forbidden", message: "Not Authorized" }] })],
+    ["notAuthorized", envelope({ code: 403, errors: [{ domain: "global", reason: "notAuthorized" }] })],
+    ["domainCannotUseApis", envelope({ code: 403, errors: [{ domain: "global", reason: "domainCannotUseApis" }] })],
+    ["domainNotFound", envelope({ code: 403, errors: [{ domain: "global", reason: "domainNotFound" }] })],
+    ["an ErrorInfo forbidden", envelope({ code: 403, details: [{ "@type": ERROR_INFO, reason: "forbidden", domain: "googleapis.com" }] })],
+  ])("maps a Groups 403 %s to GWS_ADMIN_REQUIRED in plain words", (_label, body) => {
+    const e = mapUpstreamError(403, body, "groups");
+    expect(e.code).toBe("GWS_ADMIN_REQUIRED");
+    expect(e.message).toMatch(/Google Workspace admin/);
+    expect(e.message).toMatch(/Personal Gmail accounts/);
+    expect(e.message).not.toMatch(/403|forbidden|notAuthorized|domain[A-Z]/);
+    expect(e.details?.status).toBe(403);
+    expect(toWire(e).code).toBe("GWS_ADMIN_REQUIRED");
+  });
+
+  it("keeps the scope check ahead of the admin check on Groups", () => {
+    const e = mapUpstreamError(
+      403,
+      envelope({ code: 403, errors: [{ reason: "forbidden" }], details: [{ "@type": ERROR_INFO, reason: "ACCESS_TOKEN_SCOPE_INSUFFICIENT" }] }),
+      "groups",
+    );
+    expect(e.code).toBe("GWS_SCOPE_MISSING");
+  });
+
+  it.each([
+    ["a Groups 404", 404, envelope({ code: 404, errors: [{ reason: "notFound" }] }), "groups"],
+    ["a Groups 403 for another reason", 403, envelope({ code: 403, errors: [{ reason: "rateLimitExceeded" }] }), "groups"],
+    ["a Groups 403 with no reason", 403, envelope({ code: 403, status: "PERMISSION_DENIED" }), "groups"],
+    ["a Drive 403 forbidden", 403, envelope({ code: 403, errors: [{ reason: "forbidden" }] }), "drive"],
+    ["a 403 forbidden of an unknown service", 403, envelope({ code: 403, errors: [{ reason: "forbidden" }] }), undefined],
+    ["a Groups 403 with a reason that only starts with domain", 403, envelope({ code: 403, errors: [{ reason: "domains" }] }), "groups"],
+  ] as const)("keeps %s as GWS_UPSTREAM_ERROR", (_label, status, body, service) => {
+    expect(mapUpstreamError(status, body, service).code).toBe("GWS_UPSTREAM_ERROR");
+  });
+
   it("maps a non-JSON 502 to GWS_UPSTREAM_ERROR with the status only", () => {
     const e = mapUpstreamError(502, "<html><body>Bad Gateway</body></html>");
     expect(e.code).toBe("GWS_UPSTREAM_ERROR");

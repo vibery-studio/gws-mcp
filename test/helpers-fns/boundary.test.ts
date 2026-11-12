@@ -11,13 +11,18 @@ describe("helpers reach Google only through ctx.call", () => {
   it("finds the helper sources", () => {
     expect(FILES.map(([p]) => p.split("/").pop()).sort()).toEqual([
       "add-task.ts",
+      "ads.ts",
+      "analytics.ts",
       "append-rows.ts",
+      "calendar-control.ts",
       "export-pdf.ts",
       "fill-template.ts",
       "index.ts",
       "mime.ts",
       "responses-to-sheet.ts",
+      "searchconsole.ts",
       "send-mail.ts",
+      "tagmanager.ts",
       "today-agenda.ts",
       "upload-file.ts",
     ]);
@@ -29,11 +34,16 @@ describe("helpers reach Google only through ctx.call", () => {
 
   it.each([
     "add-task.ts",
+    "ads.ts",
+    "analytics.ts",
     "append-rows.ts",
+    "calendar-control.ts",
     "export-pdf.ts",
     "fill-template.ts",
     "responses-to-sheet.ts",
+    "searchconsole.ts",
     "send-mail.ts",
+    "tagmanager.ts",
     "today-agenda.ts",
     "upload-file.ts",
   ])("%s calls Google through ctx.call", (file) => {

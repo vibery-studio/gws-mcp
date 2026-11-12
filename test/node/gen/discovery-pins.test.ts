@@ -10,23 +10,36 @@ const pin = (revision: string): Pin => ({ version: "v1", revision, url: "u", sha
 
 describe("discovery pins", () => {
   it("pins every discovery source, in source order, with a matching file", () => {
-    expect(Object.keys(pins)).toEqual(DISCOVERY_SOURCES.map((s) => s.service));
+    expect(Object.keys(pins)).toEqual(DISCOVERY_SOURCES.map((s) => s.api));
     for (const src of DISCOVERY_SOURCES) {
-      const p = pins[src.service]!;
-      expect(p.version, src.service).toBe(src.version);
-      expect(p.url, src.service).toBe(src.url);
-      const bytes = readFileSync(path.join(root, `discovery/${src.service}.${src.version}.json`));
-      expect(bytes.length, src.service).toBe(p.bytes);
-      expect(createHash("sha256").update(bytes).digest("hex"), src.service).toBe(p.sha256);
+      const p = pins[src.api]!;
+      expect(p.version, src.api).toBe(src.version);
+      expect(p.url, src.api).toBe(src.url);
+      const bytes = readFileSync(path.join(root, `discovery/${src.api}.${src.version}.json`));
+      expect(bytes.length, src.api).toBe(p.bytes);
+      expect(createHash("sha256").update(bytes).digest("hex"), src.api).toBe(p.sha256);
       const doc = JSON.parse(bytes.toString("utf8")) as { revision: string; version: string };
-      expect(doc.revision, src.service).toBe(p.revision);
+      expect(doc.revision, src.api).toBe(p.revision);
     }
+  });
+
+  it("pins the marketing, groups and tag manager documents under their api names", () => {
+    const byApi = new Map(DISCOVERY_SOURCES.map((s) => [s.api as string, s.version as string]));
+    expect(Object.fromEntries(["searchconsole", "analyticsdata", "analyticsadmin", "admin", "groupssettings", "googleads", "tagmanager"].map((a) => [a, byApi.get(a)]))).toEqual({
+      searchconsole: "v1",
+      analyticsdata: "v1beta",
+      analyticsadmin: "v1beta",
+      admin: "directory_v1",
+      groupssettings: "v1",
+      googleads: "v23",
+      tagmanager: "v2",
+    });
   });
 
   it("selects all sources by default and exactly the named ones otherwise", () => {
     expect(selectSources([])).toHaveLength(DISCOVERY_SOURCES.length);
-    expect(selectSources(["slides", "forms"]).map((s) => s.service)).toEqual(["forms", "slides"]);
-    expect(() => selectSources(["nope"])).toThrow(/unknown discovery service nope/);
+    expect(selectSources(["slides", "forms"]).map((s) => s.api)).toEqual(["forms", "slides"]);
+    expect(() => selectSources(["nope"])).toThrow(/unknown discovery api nope/);
     expect(() => selectSources(["tasks", "tasks"])).toThrow(/given twice/);
   });
 

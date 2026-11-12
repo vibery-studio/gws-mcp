@@ -1,0 +1,35 @@
+{
+  "id": "tagmanager-variables-list",
+  "source": "synthesized",
+  "provenance": "Discovery tagmanager v2 rev 20261111 ListVariablesResponse; served by the fake seeded with preset \"default\" for alice@fake.test",
+  "request": {
+    "method": "GET",
+    "path": "/tagmanager.googleapis.com/tagmanager/v2/accounts/6001001001/containers/9001001/workspaces/1/variables"
+  },
+  "response": {
+    "status": 200,
+    "headers": {},
+    "body": {
+      "variable": [
+        {
+          "path": "accounts/6001001001/containers/9001001/workspaces/1/variables/1",
+          "accountId": "6001001001",
+          "containerId": "9001001",
+          "workspaceId": "1",
+          "variableId": "1",
+          "name": "Page host",
+          "type": "u",
+          "parameter": [
+            {
+              "type": "template",
+              "key": "component",
+              "value": "HOST"
+            }
+          ],
+          "tagManagerUrl": "https://tagmanager.google.com/#/container/accounts/6001001001/containers/9001001/workspaces/1/variables/1?apiLink=variable",
+          "fingerprint": "1318031133"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "id": "calendar-freebusy-query",
+  "source": "synthesized",
+  "provenance": "Discovery calendar v3 rev 20261102 FreeBusyResponse; served by the fake seeded with preset \"default\" for alice@fake.test at SEED_NOW",
+  "request": {
+    "method": "POST",
+    "path": "/www.googleapis.com/calendar/v3/freeBusy"
+  },
+  "response": {
+    "status": 200,
+    "headers": {},
+    "body": {
+      "kind": "calendar#freeBusy",
+      "timeMin": "2026-11-09T17:00:00.000Z",
+      "timeMax": "2026-11-10T03:00:00.000Z",
+      "calendars": {
+        "primary": {
+          "busy": [
+            {
+              "start": "2026-11-09T17:15:00.000Z",
+              "end": "2026-11-09T18:00:00.000Z"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

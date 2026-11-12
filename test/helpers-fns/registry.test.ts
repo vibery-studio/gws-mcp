@@ -14,10 +14,25 @@ const EXPECTED = [
   ["tasks.addTask", "write", "add a task to my todo list"],
   ["forms.responsesToSheet", "write", "copy form responses to a spreadsheet"],
   ["slides.fillTemplate", "write", "fill a slides template"],
+  ["searchconsole.topQueries", "read", "top search queries from google search console"],
+  ["searchconsole.topPages", "read", "top pages by clicks in search console"],
+  ["searchconsole.inspect", "read", "check if a url is indexed by google"],
+  ["analytics.report", "read", "google analytics sessions report"],
+  ["analytics.properties", "read", "list google analytics properties"],
+  ["ads.accounts", "read", "list google ads accounts"],
+  ["ads.report", "read", "google ads campaign report"],
+  ["calendar.share", "write", "share my calendar with a colleague"],
+  ["calendar.unshare", "write", "stop sharing my calendar"],
+  ["calendar.findFreeSlots", "read", "find a free time slot when everyone is available"],
+  ["calendar.respond", "write", "accept a calendar invitation"],
+  ["calendar.move", "write", "move an event to another calendar"],
+  ["tagmanager.containers", "read", "list google tag manager containers"],
+  ["tagmanager.workspaceStatus", "read", "tag manager workspace pending changes"],
+  ["tagmanager.publish", "write", "publish gtm container"],
 ] as const;
 
 describe("workspace helpers", () => {
-  it("registers exactly the eight helpers as host fns of the helpers service", () => {
+  it("registers exactly the expected helpers as host fns of the helpers service", () => {
     expect(helperFns.map((f) => f.name).sort()).toEqual(EXPECTED.map(([n]) => n).sort());
     for (const fn of helperFns) {
       expect(fn.kind).toBe("host");

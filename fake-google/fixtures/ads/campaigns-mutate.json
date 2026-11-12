@@ -1,0 +1,20 @@
+{
+  "id": "ads-campaigns-mutate",
+  "source": "synthesized",
+  "provenance": "Discovery googleads v23 rev 20261106 MutateCampaignsResponse; served by the fake seeded with preset \"default\" for alice@fake.test",
+  "request": {
+    "method": "POST",
+    "path": "/googleads.googleapis.com/v23/customers/9876543210/campaigns:mutate"
+  },
+  "response": {
+    "status": 200,
+    "headers": {},
+    "body": {
+      "results": [
+        {
+          "resourceName": "customers/9876543210/campaigns/333333333"
+        }
+      ]
+    }
+  }
+}

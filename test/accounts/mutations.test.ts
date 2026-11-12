@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { loadConfig } from "../../src/config";
 import type { AuthProps } from "../../src/contracts";
 import { peekGrantRequest } from "../../src/core/accounts-capability";
+import { DESTRUCTIVE_REASON_WORDS } from "../../src/core/destructive";
 import { createCallSession, type DispatchResult } from "../../src/core/dispatch";
 import type { WireError } from "../../src/errors";
 import { googleOAuth } from "../../src/google/oauth";
@@ -112,7 +113,7 @@ describe("accounts.disconnect", () => {
     const { s, result } = await call(client, "accounts.disconnect", { account: b.account.email }, false);
     const step = (valueOf(result) as { step: string }).step;
     expect(valueOf(result)).toEqual({ applied: false, step });
-    expect(s.plan).toEqual([{ step, fn: "accounts.disconnect", account: b.account.email, effect: "write", destructive: true }]);
+    expect(s.plan).toEqual([{ step, fn: "accounts.disconnect", account: b.account.email, effect: "write", destructive: true, reason: "disconnect", reasonText: DESTRUCTIVE_REASON_WORDS.disconnect }]);
     expect(s.destructive).toBe(true);
     expect(await state(b.userId)).toEqual(before);
     await expect(googleOAuth(env, fakeTransport).refresh(b.refreshToken)).resolves.toBeDefined();

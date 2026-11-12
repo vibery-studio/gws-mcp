@@ -1,7 +1,6 @@
 {
   "name": "@bnqtoan/gws-mcp",
-  "version": "0.1.0",
-  "private": true,
+  "version": "0.2.0",
   "type": "module",
   "description": "Code-mode Google Workspace MCP server: run it locally over stdio, or self-host it on Cloudflare Workers",
   "license": "Apache-2.0",
@@ -28,6 +27,8 @@
   "scripts": {
     "test": "vitest run",
     "build:local": "tsx build/local.ts",
+    "build:node": "tsx scripts/node-host-bundle.ts",
+    "serve:node": "node --disable-warning=ExperimentalWarning dist/node-host/server.js",
     "typecheck": "tsc --noEmit",
     "types": "wrangler types -c wrangler.example.jsonc",
     "gen": "tsx scripts/gen-sdk.ts",
@@ -40,6 +41,7 @@
     "db:migrate:e2e:local": "tsx scripts/wrangler.ts e2e d1 migrations apply DB --local",
     "db:migrate:e2e:remote": "tsx scripts/wrangler.ts e2e d1 migrations apply DB --remote",
     "e2e": "tsx scripts/e2e/run.ts",
+    "e2e:docker": "bash scripts/e2e/docker.sh",
     "e2e:local": "tsx scripts/e2e-local/run.ts",
     "deploy": "tsx scripts/wrangler.ts main deploy --env=\"\"",
     "deploy:fake": "tsx scripts/wrangler.ts fake deploy",

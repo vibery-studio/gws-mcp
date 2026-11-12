@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { timingSafeEqual } from "node:crypto";
 import http from "node:http";
-import { GOOGLE_SERVICES, SERVICE_SCOPES, loadConfig, type Config, type GoogleService, type ScopePreset } from "../config";
+import { SERVICE_SCOPES, loadConfig, type Config, type GoogleService, type ScopePreset } from "../config";
 import type { SecretSource } from "../core/ports";
 import { GwsError, isGwsError } from "../errors";
 import { createGoogleOAuth, type GoogleOAuth } from "../google/oauth";
@@ -45,8 +45,8 @@ function sameText(a: string, b: string): boolean {
   return x.length === y.length && timingSafeEqual(x, y);
 }
 
-/** The scopes a connect asks for: identity, then each service's scopes under `preset` (all services by default). */
-export function connectScopes(preset: ScopePreset, services: readonly GoogleService[] = GOOGLE_SERVICES): string[] {
+/** The scopes a connect asks for: identity, then each named service's scopes under `preset`. No default on purpose. */
+export function connectScopes(preset: ScopePreset, services: readonly GoogleService[]): string[] {
   return [...new Set([...IDENTITY_SCOPES, ...services.flatMap((s) => SERVICE_SCOPES[preset][s])])];
 }
 

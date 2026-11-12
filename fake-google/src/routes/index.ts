@@ -1,11 +1,16 @@
 import type { FakeStore, JsonValue } from "../store";
+import * as ads from "./ads";
+import * as analytics from "./analytics";
 import * as calendar from "./calendar";
 import * as docs from "./docs";
 import * as drive from "./drive";
 import * as forms from "./forms";
 import * as gmail from "./gmail";
+import * as groups from "./groups";
+import * as searchconsole from "./searchconsole";
 import * as sheets from "./sheets";
 import * as slides from "./slides";
+import * as tagmanager from "./tagmanager";
 import * as tasks from "./tasks";
 
 /** What a route handler receives. Access (token + route scopes) is already checked. */
@@ -40,7 +45,7 @@ export interface SeedResourceTemplate {
 }
 export type SeedPresets = Record<string, SeedResourceTemplate[]>;
 
-const services = [gmail, drive, calendar, sheets, docs, forms, tasks, slides];
+const services = [gmail, drive, calendar, sheets, docs, forms, tasks, slides, searchconsole, analytics, ads, groups, tagmanager];
 
 export const routes: FakeRoute[] = services.flatMap((s) => s.routes);
 

@@ -1,0 +1,23 @@
+{
+  "id": "calendar-acl-insert",
+  "source": "synthesized",
+  "provenance": "Discovery calendar v3 rev 20261102 AclRule resource",
+  "request": {
+    "method": "POST",
+    "path": "/www.googleapis.com/calendar/v3/calendars/primary/acl"
+  },
+  "response": {
+    "status": 200,
+    "headers": {},
+    "body": {
+      "kind": "calendar#aclRule",
+      "etag": "\"fake-user:colleague@fake.test\"",
+      "id": "user:colleague@fake.test",
+      "scope": {
+        "type": "user",
+        "value": "colleague@fake.test"
+      },
+      "role": "reader"
+    }
+  }
+}

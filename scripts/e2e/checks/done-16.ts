@@ -1,13 +1,15 @@
 // Done 16: Forms, Tasks and Slides on the fake Google, through the MCP tools. Search finds a method per service;
 // the reads return validated data (a bad-shape response is refused); a task insert and a Slides replaceAllText dry-run with no API write, then
 // apply observably; deletes are flagged destructive; regeneration stays byte-identical. An account connected for
-// the five original services only is offered exactly the three new ones on its "Add Google services" page, and
+// the five original services only is offered every other service on its "Add Google services" page (a first sign-in
+// account is offered only the opt-in ones), and
 // gets GWS_SCOPE_MISSING (not a crash) on Tasks, while its Drive scope still serves Forms and Slides reads, as
 // their Discovery scopes allow.
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { codeOf, type ExecuteReport } from "../mcp";
+import { DEFAULT_CONNECT_SERVICES, GOOGLE_SERVICES } from "../../../src/config";
 import { COPY, SERVICE_NAMES } from "../../../src/web/copy";
 import { connectFromAccounts, connectionsRedirect, formFields, signedInPage } from "../oauth-driver";
 import type { CheckResult, E2eContext, Recorder } from "../run";
@@ -29,6 +31,10 @@ const TEMPLATE_NAME_OCCURRENCES = 3;
 
 const NEW_SERVICES = ["forms", "tasks", "slides"] as const;
 const ORIGINAL_SERVICES = ["gmail", "drive", "calendar", "sheets", "docs"] as const;
+/** What an account connected for the original five can add: every other service, in the page's order. */
+const OFFERED_TO_OLDER = GOOGLE_SERVICES.filter((s) => !(ORIGINAL_SERVICES as readonly string[]).includes(s));
+/** What a first sign-in leaves to add: the opt-in services (Ads, Groups, Analytics editing, Tag Manager edit, publish, admin). */
+const OFFERED_AFTER_FIRST_SIGN_IN = GOOGLE_SERVICES.filter((s) => !DEFAULT_CONNECT_SERVICES.includes(s));
 
 type Plan = ExecuteReport["plan"];
 
@@ -228,13 +234,13 @@ async function olderAccount(ctx: E2eContext, r: Recorder): Promise<void> {
   if (!r.check(dId !== undefined && aId !== undefined, "accounts a and d are stored for the user") || dId === undefined || aId === undefined) return;
   const offerD = await servicesOffer(ctx, dId);
   r.check(
-    JSON.stringify(offerD.offered) === JSON.stringify(NEW_SERVICES) && offerD.form && ORIGINAL_SERVICES.every(offerD.has) && !NEW_SERVICES.some(offerD.has),
+    JSON.stringify(offerD.offered) === JSON.stringify(OFFERED_TO_OLDER) && offerD.form && ORIGINAL_SERVICES.every(offerD.has) && !NEW_SERVICES.some(offerD.has),
     `Add Google services for d: can add [${offerD.offered.join(", ")}] with ${COPY.actions.continueToGoogle} (${offerD.form}); already connected ${ORIGINAL_SERVICES.filter(offerD.has).length}/${ORIGINAL_SERVICES.length}`,
   );
   const offerA = await servicesOffer(ctx, aId);
   r.check(
-    offerA.offered.length === 0 && offerA.allConnected && [...ORIGINAL_SERVICES, ...NEW_SERVICES].every(offerA.has),
-    `Add Google services for a (connected after the new services): nothing to add, "${COPY.empty.allServicesConnected}" ${offerA.allConnected}`,
+    JSON.stringify(offerA.offered) === JSON.stringify(OFFERED_AFTER_FIRST_SIGN_IN) && !offerA.allConnected && DEFAULT_CONNECT_SERVICES.every(offerA.has),
+    `Add Google services for a (first sign-in, one-click set): already connected ${DEFAULT_CONNECT_SERVICES.filter(offerA.has).length}/${DEFAULT_CONNECT_SERVICES.length}; can add [${offerA.offered.join(", ")}]`,
   );
 
   const client = await ctx.newClient(`E2E older-account client ${ctx.runId}`, [d]);

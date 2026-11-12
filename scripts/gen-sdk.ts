@@ -5,8 +5,8 @@ import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { GOOGLE_SERVICES } from "../src/config";
 import { generate, type GenerateInput } from "./gen/generate";
+import { API_NAMES } from "./gen/service";
 import type { DiscoveryDoc } from "./gen/types";
 
 interface Pin {
@@ -29,10 +29,10 @@ function fail(message: string): never {
 function loadPinned(): GenerateInput {
   const pins = JSON.parse(readFileSync(path.join(root, "discovery/pins.json"), "utf8")) as Record<string, Pin>;
   const input: GenerateInput = {};
-  for (const service of GOOGLE_SERVICES) {
-    const pin = pins[service];
-    if (pin === undefined) fail(`discovery/pins.json has no entry for ${service}`);
-    const file = `discovery/${service}.${pin.version}.json`;
+  for (const api of API_NAMES) {
+    const pin = pins[api];
+    if (pin === undefined) fail(`discovery/pins.json has no entry for ${api}`);
+    const file = `discovery/${api}.${pin.version}.json`;
     const bytes = readFileSync(path.join(root, file));
     const actual = createHash("sha256").update(bytes).digest("hex");
     if (actual !== pin.sha256 || bytes.length !== pin.bytes) {
@@ -42,7 +42,7 @@ function loadPinned(): GenerateInput {
     if (doc.revision !== pin.revision || doc.version !== pin.version) {
       fail(`pin mismatch in ${file}: document is ${doc.version}@${doc.revision}, pins say ${pin.version}@${pin.revision}`);
     }
-    input[service] = { doc, version: pin.version, revision: pin.revision };
+    input[api] = { doc, version: pin.version, revision: pin.revision };
   }
   return input;
 }

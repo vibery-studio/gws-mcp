@@ -1,0 +1,25 @@
+{
+  "id": "searchconsole-sites-list",
+  "source": "synthesized",
+  "provenance": "Discovery searchconsole v1 rev 20261109 SitesListResponse; served by the fake seeded with preset \"default\" for alice@fake.test",
+  "request": {
+    "method": "GET",
+    "path": "/searchconsole.googleapis.com/webmasters/v3/sites"
+  },
+  "response": {
+    "status": 200,
+    "headers": {},
+    "body": {
+      "siteEntry": [
+        {
+          "siteUrl": "https://example.test/",
+          "permissionLevel": "SITE_OWNER"
+        },
+        {
+          "siteUrl": "sc-domain:example.test",
+          "permissionLevel": "SITE_OWNER"
+        }
+      ]
+    }
+  }
+}

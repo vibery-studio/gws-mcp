@@ -1,6 +1,9 @@
 import type { Config, SecretName } from "../config";
 import type { AuditRow } from "../contracts";
 import type { Transport } from "../google/transport";
+import type { UserSettingsPort } from "./settings-capability";
+
+export type { UserSettingsPort };
 
 /**
  * The ports the platform-free core depends on. Each runtime (Workers, local Node) supplies adapters; nothing in
@@ -194,6 +197,8 @@ export interface SessionPorts {
   readonly rate: RateCounter;
   readonly secrets: SecretSource;
   readonly http: HttpPort;
+  /** The users' encrypted settings (the Google Ads developer token and login customer id). */
+  readonly userSettings: UserSettingsPort;
 }
 
 /** Everything one execute needs from its runtime. */

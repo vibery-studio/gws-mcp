@@ -1,0 +1,21 @@
+{
+  "id": "groups-members-insert",
+  "source": "synthesized",
+  "provenance": "Discovery admin directory_v1 rev 20261109 Member; served by the fake seeded with preset \"default\" for alice@fake.test",
+  "request": {
+    "method": "POST",
+    "path": "/admin.googleapis.com/admin/directory/v1/groups/seed-group-team/members"
+  },
+  "response": {
+    "status": 200,
+    "headers": {},
+    "body": {
+      "kind": "admin#directory#member",
+      "id": "10801152943977",
+      "email": "gwen@fake.test",
+      "role": "MEMBER",
+      "type": "USER",
+      "status": "ACTIVE"
+    }
+  }
+}

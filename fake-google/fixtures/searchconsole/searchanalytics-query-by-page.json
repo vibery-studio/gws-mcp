@@ -1,0 +1,44 @@
+{
+  "id": "searchconsole-searchanalytics-query-by-page",
+  "source": "synthesized",
+  "provenance": "Discovery searchconsole v1 rev 20261109 SearchAnalyticsQueryResponse; served by the fake seeded with preset \"default\" for alice@fake.test",
+  "request": {
+    "method": "POST",
+    "path": "/searchconsole.googleapis.com/webmasters/v3/sites/https%3A%2F%2Fexample.test%2F/searchAnalytics/query"
+  },
+  "response": {
+    "status": 200,
+    "headers": {},
+    "body": {
+      "rows": [
+        {
+          "keys": [
+            "https://example.test/pricing"
+          ],
+          "clicks": 68,
+          "impressions": 1884,
+          "ctr": 0.036093418259023353,
+          "position": 4.604458598726114
+        },
+        {
+          "keys": [
+            "https://example.test/"
+          ],
+          "clicks": 48,
+          "impressions": 1004,
+          "ctr": 0.04780876494023904,
+          "position": 2.2308764940239048
+        },
+        {
+          "keys": [
+            "https://example.test/blog/launch"
+          ],
+          "clicks": 20,
+          "impressions": 740,
+          "ctr": 0.02702702702702703,
+          "position": 7.333783783783784
+        }
+      ]
+    }
+  }
+}

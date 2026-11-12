@@ -4,6 +4,7 @@ import http from "node:http";
 import path from "node:path";
 import { PassThrough } from "node:stream";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { DEFAULT_CONNECT_SERVICES, SERVICE_SCOPES } from "../../src/config";
 import { runCli, type CliIo } from "../../src/local/commands";
 import { NPX_COMMAND, PACKAGE_NAME, selfCommand, shellQuote } from "../../src/local/invocation";
 import { KEY_FILE, keychainService, type KeyringProbe } from "../../src/local/secrets";
@@ -61,12 +62,15 @@ function get(url: URL, cookie?: string): Promise<{ status: number; location: str
 }
 
 /** The browser: opens the start link, consents at the fake as `email` and follows the redirect back with its cookie. */
-function browserAs(email: string, opened: string[] = []) {
+/** `untick` drops scopes from the consent, as a user leaving a box unticked on Google's screen. */
+function browserAs(email: string, opened: string[] = [], scopes: string[][] = [], untick: readonly string[] = []) {
   return async (url: string) => {
     opened.push(url);
     const start = await get(new URL(url));
     const cookie = (start.setCookie[0] ?? "").split(";")[0];
     const u = new URL(start.location ?? "");
+    scopes.push((u.searchParams.get("scope") ?? "").split(" "));
+    if (untick.length > 0) u.searchParams.set("scope", (u.searchParams.get("scope") ?? "").split(" ").filter((s) => !untick.includes(s)).join(" "));
     const res = await fake.handler(
       new Request(`http://fake-google${u.pathname}/approve`, {
         method: "POST",
@@ -132,6 +136,8 @@ describe("gws-mcp help", () => {
     expect(help.code).toBe(0);
     expect(help.out).toContain(`${SELF} setup [--client desktop|web]`);
     expect(help.out).toContain(`claude mcp add gws -- ${SELF} serve`);
+    expect(help.out).toContain(`Without --services: ${DEFAULT_CONNECT_SERVICES.join(",")}.`);
+    expect(help.out).toContain("Others are added by name: analyticsadmin, ads, groups, tagmanageredit, tagmanagerpublish, tagmanageradmin.");
     const bad = await cli(["GOCSPX-pasted-by-mistake"]);
     expect(bad.code).toBe(2);
     expect(bad.err).toContain("unknown command (not shown)");
@@ -386,6 +392,41 @@ describe("gws-mcp setup", () => {
 });
 
 describe("gws-mcp accounts", () => {
+  it("asks only the one-click services without --services, and an opt-in service when it is named", async () => {
+    await seed("a@fake.test");
+    expect((await setupFake()).code).toBe(0);
+    const preset = SERVICE_SCOPES.narrow;
+    const asked: string[][] = [];
+
+    const add = await cli(["accounts", "add", "--yes"], { open: browserAs("a@fake.test", [], asked) });
+    expect(add.code).toBe(0);
+    expect(add.out).toContain(`Connecting a Google account for: ${DEFAULT_CONNECT_SERVICES.join(", ")}.`);
+    const oneClick = DEFAULT_CONNECT_SERVICES.flatMap((s) => preset[s]);
+    expect(asked[0]?.filter((s) => s.startsWith("https://")).sort()).toEqual([...new Set(oneClick)].sort());
+    for (const banned of ["adwords", "analytics.edit", "tagmanager.edit.", "tagmanager.publish", "tagmanager.manage.", "tagmanager.delete.", "admin.directory.", "apps.groups."]) {
+      expect(asked[0]?.filter((s) => s.includes(banned)), banned).toEqual([]);
+    }
+
+    const more = await cli(["accounts", "add", "--services", "ads,tagmanageradmin", "--account", "a@fake.test"], { open: browserAs("a@fake.test", [], asked) });
+    expect(more.code).toBe(0);
+    expect(more.out).toContain("Connecting a Google account for: ads, tagmanageradmin.");
+    expect(asked[1]).toEqual(expect.arrayContaining([...preset.ads, ...preset.tagmanageradmin]));
+  });
+
+  it("names the services Google did not grant, and the exact command that asks for them again", async () => {
+    await seed("a@fake.test");
+    expect((await setupFake()).code).toBe(0);
+    const preset = SERVICE_SCOPES.narrow;
+    const r = await cli(["accounts", "add", "--services", "gmail,ads", "--yes"], { open: browserAs("a@fake.test", [], [], preset.ads) });
+    expect(r.code).toBe(0);
+    expect(r.out).toContain(`Google did not grant: ads (a box left unticked on the consent screen?). Run ${SELF} accounts add --services ads --account a@fake.test to add them.`);
+    const asked: string[][] = [];
+    const again = await cli(["accounts", "add", "--services", "ads", "--account", "a@fake.test"], { open: browserAs("a@fake.test", [], asked) });
+    expect(again.code).toBe(0);
+    expect(asked[0]).toEqual(expect.arrayContaining([...preset.ads]));
+    expect(again.out).not.toContain("Google did not grant");
+  });
+
   it("adds accounts through the browser, adds services incrementally, and manages alias, default and disconnect", async () => {
     await seed("a@fake.test", "b@fake.test");
     expect((await setupFake()).code).toBe(0);
@@ -484,6 +525,15 @@ describe("gws-mcp accounts", () => {
 });
 
 describe("gws-mcp doctor", () => {
+  it("refuses GWS_HUMAN_APPROVAL other than off, since no page exists here for a person to approve", async () => {
+    expect((await setupFake()).code).toBe(0);
+    const refused = await cli(["doctor"], { env: { GWS_HUMAN_APPROVAL: "spend" } });
+    expect(refused.code).toBe(1);
+    expect(refused.out).toContain("GWS_HUMAN_APPROVAL can only be off on this computer");
+    expect((await cli(["doctor"], { env: { GWS_HUMAN_APPROVAL: "off" } })).code).toBe(0);
+    expect((await cli(["doctor"])).code).toBe(0);
+  });
+
   it("reports a missing setup without touching the keychain", async () => {
     const r = await cli(["doctor"]);
     expect(r.code).toBe(1);
@@ -568,5 +618,42 @@ setTimeout(() => {}, 50);`;
   it("prints nothing under --no-warnings or NODE_NO_WARNINGS=1", () => {
     expect(run(["--no-warnings"]).stderr).toBe("");
     expect(run([], { NODE_NO_WARNINGS: "1" }).stderr).not.toContain("another-warning-text");
+  });
+});
+
+describe("gws-mcp settings", () => {
+  const TOKEN = "FAKE-cli-dev-token-0001";
+
+  it("saves a value read from stdin, never printing it, and clears it", async () => {
+    expect((await setupFake()).code).toBe(0);
+    const set = await cli(["settings", "set", "ads.developer_token", "--stdin"], { stdin: `${TOKEN}\n` });
+    expect(set).toMatchObject({ code: 0, out: "Saved the Google Ads developer token.\n" });
+    const login = await cli(["settings", "set", "ads.login_customer_id", "--stdin"], { stdin: "123-456-7890\n" });
+    expect(login.code).toBe(0);
+    // Only ciphertext on disk, in the database and its sidecar files.
+    for (const f of fs.readdirSync(dir).filter((n) => n.startsWith("gws-mcp.db"))) {
+      expect(fs.readFileSync(path.join(dir, f)).includes(TOKEN), f).toBe(false);
+    }
+    expect((await cli(["settings", "clear", "ads.developer_token"])).out).toBe("Removed the saved Google Ads developer token.\n");
+    expect((await cli(["settings", "clear", "ads.developer_token"])).out).toBe("No Google Ads developer token was saved; nothing changed.\n");
+    expect(transcript.join("").includes(TOKEN)).toBe(false);
+  });
+
+  it("never takes the value from argv, and never echoes an unknown key or a refused value", async () => {
+    expect((await setupFake()).code).toBe(0);
+    const argv = await cli(["settings", "set", "ads.developer_token", TOKEN]);
+    expect([argv.code, argv.err]).toEqual([2, `gws-mcp: unexpected argument (not shown)\nRun ${SELF} --help for usage.\n`]);
+    const unknown = await cli(["settings", "set", TOKEN, "--stdin"], { stdin: "x\n" });
+    expect(unknown.code).toBe(2);
+    expect(unknown.err).toContain("settings set <key> [--stdin] (key: ads.developer_token or ads.login_customer_id)");
+    const refused = await cli(["settings", "set", "ads.developer_token", "--stdin"], { stdin: "FAKE refused value\n" });
+    // The exact line: the value is not in it, not even redacted (the redactor already knows it, so a check for the
+    // value alone could not fail).
+    expect([refused.code, refused.err]).toEqual([1, "gws-mcp: invalid value for ads.developer_token: a Google Ads developer token is one run of letters, digits, - and _\n"]);
+    const noTerminal = await cli(["settings", "set", "ads.developer_token"]);
+    expect([noTerminal.code, noTerminal.err]).toEqual([2, `gws-mcp: there is no terminal to ask for the Google Ads developer token. Pipe it on one line with --stdin\nRun ${SELF} --help for usage.\n`]);
+    expect((await cli(["settings", "clear", "ads.developer_token"])).out).toBe("No Google Ads developer token was saved; nothing changed.\n");
+    expect(transcript.join("").includes(TOKEN)).toBe(false);
+    expect(transcript.join("").includes("FAKE refused value")).toBe(false);
   });
 });

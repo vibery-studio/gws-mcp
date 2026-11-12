@@ -1,0 +1,36 @@
+{
+  "id": "groups-groups-list",
+  "source": "synthesized",
+  "provenance": "Discovery admin directory_v1 rev 20261109 Groups; served by the fake seeded with preset \"default\" for alice@fake.test",
+  "request": {
+    "method": "GET",
+    "path": "/admin.googleapis.com/admin/directory/v1/groups"
+  },
+  "response": {
+    "status": 200,
+    "headers": {},
+    "body": {
+      "kind": "admin#directory#groups",
+      "groups": [
+        {
+          "kind": "admin#directory#group",
+          "id": "seed-group-eng",
+          "email": "eng@fake.test",
+          "name": "Engineering",
+          "description": "Engineering discussion",
+          "directMembersCount": "2",
+          "adminCreated": true
+        },
+        {
+          "kind": "admin#directory#group",
+          "id": "seed-group-team",
+          "email": "team@fake.test",
+          "name": "Team",
+          "description": "Everyone on the team",
+          "directMembersCount": "3",
+          "adminCreated": true
+        }
+      ]
+    }
+  }
+}

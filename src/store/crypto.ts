@@ -62,6 +62,14 @@ export function tokenAad(kind: TokenKind, ids: { userId: string; accountId: stri
   return JSON.stringify([kind, ids.keyVersion, ids.userId, ids.accountId]);
 }
 
+/**
+ * Additional authenticated data for a stored setting value: purpose, key version, user and setting key, so a value
+ * copied to another user, another key, or a token column fails to decrypt.
+ */
+export function settingAad(ids: { userId: string; key: string; keyVersion: number }): string {
+  return JSON.stringify(["setting", ids.keyVersion, ids.userId, ids.key]);
+}
+
 export async function encrypt(key: CryptoKey, plaintext: string, aad: string): Promise<Sealed> {
   const iv = crypto.getRandomValues(new Uint8Array(IV_BYTES));
   const ct = await crypto.subtle.encrypt(

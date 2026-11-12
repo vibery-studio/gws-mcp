@@ -1,6 +1,6 @@
 import { html } from "hono/html";
 import { getSession, type AppContext } from "../../auth/session";
-import { GOOGLE_SERVICES, loadConfig } from "../../config";
+import { DEFAULT_CONNECT_SERVICES, loadConfig } from "../../config";
 import { COPY } from "../copy";
 import { pageContext, sendPage } from "../http";
 import type { AccountView, AppView, ReadModel } from "../read-model";
@@ -58,9 +58,9 @@ function attentionBanner(accounts: readonly AccountView[]): Html | "" {
 </section>`;
 }
 
-/** Connecting another Google account: the existing connect flow for every Google service, as on Google accounts. */
+/** Connecting another Google account: the existing connect flow for the one-click services, as on Google accounts. */
 function addAccountForm(csrf: string, variant: "primary" | "ghost"): Html {
-  return html`<form method="post" action="/connections/connect" class="inline"><input type="hidden" name="csrf" value="${csrf}">${GOOGLE_SERVICES.map(
+  return html`<form method="post" action="/connections/connect" class="inline"><input type="hidden" name="csrf" value="${csrf}">${DEFAULT_CONNECT_SERVICES.map(
     (s) => html`<input type="hidden" name="service" value="${s}">`,
   )}<button type="submit" class="btn btn-${variant}">${COPY.actions.addGoogleAccount}</button></form>`;
 }

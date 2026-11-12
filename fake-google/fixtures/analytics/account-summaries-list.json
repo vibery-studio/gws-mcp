@@ -1,0 +1,43 @@
+{
+  "id": "analytics-account-summaries-list",
+  "source": "synthesized",
+  "provenance": "Discovery analyticsadmin v1beta rev 20261104 ListAccountSummariesResponse; served by the fake seeded with preset \"default\" for alice@fake.test",
+  "request": {
+    "method": "GET",
+    "path": "/analyticsadmin.googleapis.com/v1beta/accountSummaries"
+  },
+  "response": {
+    "status": 200,
+    "headers": {},
+    "body": {
+      "accountSummaries": [
+        {
+          "name": "accountSummaries/1001",
+          "account": "accounts/1001",
+          "displayName": "Example Co",
+          "propertySummaries": [
+            {
+              "property": "properties/2001",
+              "displayName": "Example site",
+              "propertyType": "PROPERTY_TYPE_ORDINARY",
+              "parent": "accounts/1001"
+            }
+          ]
+        },
+        {
+          "name": "accountSummaries/1002",
+          "account": "accounts/1002",
+          "displayName": "Example Labs",
+          "propertySummaries": [
+            {
+              "property": "properties/2002",
+              "displayName": "Example app",
+              "propertyType": "PROPERTY_TYPE_ORDINARY",
+              "parent": "accounts/1002"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

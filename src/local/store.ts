@@ -3,12 +3,16 @@ import { DatabaseSync, type SQLInputValue, type StatementSync } from "node:sqlit
 import { z } from "zod";
 import initSql from "../../migrations/0001_init.sql?raw";
 import clientApprovalsSql from "../../migrations/0002_client_approvals.sql?raw";
+import accessRulesSql from "../../migrations/0003_access_rules.sql?raw";
+import userSettingsSql from "../../migrations/0004_user_settings.sql?raw";
+import usedLinksSql from "../../migrations/0005_used_links.sql?raw";
 import type { Config } from "../config";
 import type { AuditSink, LinkStore, RateCounter, SecretSource, TokenCache } from "../core/ports";
 import { GwsError, isGwsError } from "../errors";
 import type { GoogleOAuth } from "../google/oauth";
 import { KEY_VERSION, decrypt, encrypt, importKey, tokenAad, type Sealed } from "../store/crypto";
 import { openStore, type Store, type StoreEnv } from "../store/db";
+import { openUserSettings, type UserSettingsStore } from "../store/user-settings";
 import { ensurePrivateDir, ensurePrivateFile, type PathCheck } from "./paths";
 import type { Redactor } from "./secrets";
 
@@ -52,6 +56,15 @@ export const LOCAL_MIGRATIONS: readonly { version: number; name: string; sql: st
   { version: 2, name: "0002_client_approvals", sql: clientApprovalsSql },
   { version: 3, name: "local_links_and_user", sql: LOCAL_LINKS_AND_USER_SQL },
   { version: 4, name: "local_meta", sql: META_SQL },
+  // The access list's tables, for one schema in both runtimes. Locally they stay empty and nothing reads them: the
+  // local server serves only the person running it, over stdio or a loopback page, with no sign-in and no other users
+  // to admit. (Its seed skips the local user, whose stored email is not an address.)
+  { version: 5, name: "0003_access_rules", sql: accessRulesSql },
+  // The local user's Google Ads settings, sealed with the keychain (or key file) key like the refresh tokens.
+  { version: 6, name: "0004_user_settings", sql: userSettingsSql },
+  // Single-use link consumption and the settings version. Locally no setting link is made (no web page), but every
+  // save and clear bumps the version, so both runtimes share the settings code and schema.
+  { version: 7, name: "0005_used_links", sql: usedLinksSql },
 ];
 export const SCHEMA_VERSION = LOCAL_MIGRATIONS.length;
 
@@ -286,6 +299,8 @@ export interface LocalStore {
   readonly links: LinkStore;
   readonly audit: AuditSink;
   readonly rate: RateCounter;
+  /** The local user's encrypted settings (the remote settings store over this database). */
+  readonly settings: UserSettingsStore;
   /** The access-token cache, refreshing through `oauth` (which must target the same upstream as the session). */
   readonly tokenCache: (oauth: Pick<GoogleOAuth, "refresh">) => TokenCache;
   readonly close: () => void;
@@ -397,6 +412,7 @@ export function openLocalStore(opts: OpenLocalStoreOptions): LocalStore {
     links,
     audit: { insertMany: remote.audit.insertMany },
     rate: { hit: remote.rate.hit },
+    settings: openUserSettings(env),
     tokenCache: (oauth) =>
       createTokenCache({ accounts: remote.accounts, key: () => importKey(env), oauth, redactor: opts.redactor, now }),
     close: () => db.close(),

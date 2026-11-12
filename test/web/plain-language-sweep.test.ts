@@ -3,16 +3,25 @@ import { Hono } from "hono";
 import { describe, expect, it } from "vitest";
 import { CAPABILITIES_TEXT } from "../../src/auth/consent-page";
 import { DEFAULT_NEXT } from "../../src/auth/google-flow";
-import { SERVICE_SCOPES } from "../../src/config";
+import { DEFAULT_CONNECT_SERVICES, SERVICE_SCOPES } from "../../src/config";
 import { googleOAuth } from "../../src/google/oauth";
+import { PRIVATE_MESSAGE, PRIVATE_TITLE } from "../../src/auth/routes";
+import { openAccessStore } from "../../src/store/access";
 import { openStore } from "../../src/store/db";
+import { ACCESS_COPY } from "../../src/web/access-copy";
 import { COPY, GLOSSARY, PLAIN_ERROR_CODES, connectAppHelp, plainError } from "../../src/web/copy";
 import { setFlash, type Flash } from "../../src/web/flash";
+import { ADS_COPY } from "../../src/web/pages/account-details";
+import { SETTING_LINK_COPY } from "../../src/web/pages/setting-link";
+import { mintSettingLink } from "../../src/core/setting-links";
+import { gatedStep, mintApprovalLink } from "../../src/core/human-approval";
+import { APPROVAL_LINK_COPY } from "../../src/web/pages/approval-link";
+import { workersSettingLinkPort } from "../../src/runtime/workers/ports";
 import { HOME_COPY, SIGN_IN_COPY } from "../../src/web/pages/home";
 import { PAGE_CSP } from "../../src/web/ui";
 import { fakeTransport, seedUserWithAccount } from "../helpers/accounts";
 import { uniqueEmail } from "../helpers/fake";
-import { BASE, Browser, approveClient, authorizePath, config, loginCallback, pkce, registerClient } from "../auth/browser";
+import { BASE, Browser, approveClient, authorizePath, config, loginCallback, pkce, registerClient, seedGoogle } from "../auth/browser";
 import { expectPlainLanguage } from "./plain-language";
 
 /**
@@ -65,6 +74,21 @@ async function grantLink(userId: string, clientId: string): Promise<string> {
   return new URL(w.value.url).searchParams.get("t") ?? "";
 }
 
+/** A one-time link for the user to set `key`, as `settings.requestLink` makes it; returns its link token. */
+async function settingLink(userId: string, clientId: string, key: "ads.developer_token" | "ads.login_customer_id"): Promise<string> {
+  const deps = { links: env.CACHE_KV, rate: store.rate, port: workersSettingLinkPort(env), baseUrl: BASE, auth: { userId, clientId }, executeId: "e-sweep", now: Date.now() };
+  return new URL((await mintSettingLink(deps, key)).link.url).searchParams.get("t") ?? "";
+}
+
+/** An approval link for a public share on the user's account, as a dry run makes it; returns its link token. */
+async function approvalLink(userId: string, clientId: string, account: string): Promise<string> {
+  const request = { method: "POST", url: "https://www.googleapis.com/drive/v3/files/sweep-file-1/permissions", query: {}, body: { role: "reader", type: "anyone" } };
+  const step = await gatedStep({ step: "s1", fn: "drive.permissions.create", account, reason: "public-share", request, sentBody: JSON.stringify(request.body), incomplete: false });
+  const deps = { links: env.CACHE_KV, baseUrl: BASE, auth: { userId, clientId }, executeId: "e-sweep", now: Date.now() };
+  const { link } = await mintApprovalLink(deps, { planHash: "0".repeat(64), steps: [step] });
+  return new URL(link.url).searchParams.get("t") ?? "";
+}
+
 /**
  * A user with a default account named "personal" (Gmail, Drive), a second named "work" that needs
  * reconnecting, a third connected and not yet allowed, and one approved AI app allowed only "personal". A
@@ -73,8 +97,11 @@ async function grantLink(userId: string, clientId: string): Promise<string> {
 async function fixture() {
   const personal = await seedUserWithAccount(env, { email: uniqueEmail("sweep-a"), scopes: GMAIL_DRIVE, isDefault: true, alias: "Personal" });
   const userId = personal.userId;
+  // The swept user is an admin of the access list, so the admin-only area and its nav item are swept too.
+  await openAccessStore(env.DB).add({ pattern: personal.account.email, role: "admin", note: "Sweep owner" }, { actor: userId, via: "web" });
   const work = (await seedUserWithAccount(env, { email: uniqueEmail("sweep-b"), scopes: TASKS, userId, alias: "Work" })).account;
-  const spare = (await seedUserWithAccount(env, { email: uniqueEmail("sweep-c"), scopes: GMAIL_DRIVE, userId })).account;
+  // Google Ads connected, so its section on the account page is swept too.
+  const spare = (await seedUserWithAccount(env, { email: uniqueEmail("sweep-c"), scopes: [...GMAIL_DRIVE, ...SERVICE_SCOPES[preset].ads], userId })).account;
   const browser = new Browser();
   const signedIn = await loginCallback(browser, personal.account.email);
   const app = await approveClient(browser, APP_NAME, (form) => form.accounts.filter((a) => a.id === personal.account.id).map((a) => a.id));
@@ -95,7 +122,7 @@ async function fixture() {
     work,
     spare,
     freshBrowser,
-    allow: [personal.account.email, work.email, spare.email, fresh.account.email, "personal", "work", APP_NAME],
+    allow: [personal.account.email, work.email, spare.email, fresh.account.email, "personal", "work", APP_NAME, "Sweep owner"],
   };
 }
 
@@ -117,6 +144,38 @@ interface PageCase {
 const nav = [COPY.nav.home, COPY.nav.accounts, COPY.nav.apps, COPY.shell.signOut];
 
 const PAGES: readonly PageCase[] = [
+  {
+    name: "who can use this",
+    open: (fx) => fx.browser.fetch("/access"),
+    status: 200,
+    csp: "page",
+    labels: () => [
+      ...nav,
+      ACCESS_COPY.nav,
+      ACCESS_COPY.lede,
+      ACCESS_COPY.adminsNote,
+      ACCESS_COPY.moreAccounts,
+      ACCESS_COPY.roles.admin,
+      ACCESS_COPY.kinds.domain,
+      ACCESS_COPY.makeUser,
+      ACCESS_COPY.remove,
+      ACCESS_COPY.removeHint,
+      ACCESS_COPY.patternLabel,
+      ACCESS_COPY.roleOptions.admin,
+      ACCESS_COPY.add,
+    ],
+  },
+  {
+    name: "message: sign-in refused, private",
+    open: async () => {
+      const email = `outsider-${crypto.randomUUID().slice(0, 8)}@sweep-outsider.test`;
+      await seedGoogle(email);
+      return loginCallback(new Browser(), email);
+    },
+    status: 403,
+    csp: "consent",
+    labels: () => [PRIVATE_TITLE, PRIVATE_MESSAGE],
+  },
   {
     name: "Home",
     open: (fx) => fx.browser.fetch("/"),
@@ -172,6 +231,20 @@ const PAGES: readonly PageCase[] = [
     status: 400,
     csp: "page",
     labels: () => [...nav, GLOSSARY.accountName.term, "Use up to 64 characters", COPY.actions.saveName],
+  },
+  {
+    name: "account details, Google Ads",
+    open: (fx) => fx.browser.fetch(`/accounts/${id(fx.spare.id)}`),
+    status: 200,
+    csp: "page",
+    labels: () => [...nav, ADS_COPY.title, ADS_COPY.lede, ADS_COPY.missing, ADS_COPY.codeLabel, ADS_COPY.codeHint, ADS_COPY.managerLabel, ADS_COPY.save],
+  },
+  {
+    name: "account details, refused Google Ads details",
+    open: (fx) => post(fx.browser, `/accounts/${id(fx.spare.id)}/ads`, [["csrf", fx.csrf], ["developerCode", "not a code"], ["managerId", ""]]),
+    status: 400,
+    csp: "page",
+    labels: () => [...nav, ADS_COPY.title, "Copy the whole code from the API Center.", ADS_COPY.save],
   },
   {
     name: "add Google services",
@@ -291,6 +364,87 @@ const PAGES: readonly PageCase[] = [
     labels: () => ["Link not valid", "Ask the app again."],
   },
   {
+    name: "set a setting from a one-time link",
+    open: async (fx) => fx.browser.fetch(`/settings/set?t=${await settingLink(fx.userId, fx.app.clientId, "ads.developer_token")}`),
+    status: 200,
+    csp: "page",
+    labels: () => [...nav, "Set your Google Ads developer code", SETTING_LINK_COPY.lede, SETTING_LINK_COPY.appliesToAll, ADS_COPY.codeLabel, ADS_COPY.codeHint, SETTING_LINK_COPY.once, COPY.actions.cancel],
+  },
+  {
+    name: "set a setting from a one-time link, refused value",
+    open: async (fx) => post(fx.browser, "/settings/set", [["csrf", fx.csrf], ["t", await settingLink(fx.userId, fx.app.clientId, "ads.developer_token")], ["value", "not a code"]]),
+    status: 400,
+    csp: "page",
+    labels: () => [...nav, "Set your Google Ads developer code", "Copy the whole code from the API Center."],
+  },
+  {
+    name: "message: one-time link not valid",
+    open: (fx) => fx.browser.fetch("/settings/set?t=nope"),
+    status: 400,
+    csp: "page",
+    labels: () => [SETTING_LINK_COPY.invalidTitle, SETTING_LINK_COPY.invalid],
+  },
+  {
+    name: "message: one-time link for someone else (the same as not valid)",
+    open: async (fx) => fx.freshBrowser.fetch(`/settings/set?t=${await settingLink(fx.userId, fx.app.clientId, "ads.developer_token")}`),
+    status: 400,
+    csp: "page",
+    labels: () => [SETTING_LINK_COPY.invalidTitle, SETTING_LINK_COPY.invalid],
+  },
+  {
+    name: "message: one-time link saved",
+    open: async (fx) =>
+      post(fx.browser, "/settings/set", [["csrf", fx.csrf], ["t", await settingLink(fx.userId, fx.app.clientId, "ads.login_customer_id")], ["value", "123-456-7890"]]),
+    status: 200,
+    csp: "page",
+    labels: () => [SETTING_LINK_COPY.savedTitle, SETTING_LINK_COPY.saved("Google Ads manager account ID")],
+  },
+  {
+    name: "approve what an AI app wants to do, from a one-time link",
+    open: async (fx) => fx.browser.fetch(`/plan/approve?t=${await approvalLink(fx.userId, fx.app.clientId, fx.personal.email)}`),
+    status: 200,
+    csp: "page",
+    labels: () => [
+      ...nav,
+      APPROVAL_LINK_COPY.title,
+      APPROVAL_LINK_COPY.lede,
+      "Makes something visible to anyone",
+      APPROVAL_LINK_COPY.account,
+      APPROVAL_LINK_COPY.sends,
+      APPROVAL_LINK_COPY.approve,
+      APPROVAL_LINK_COPY.decline,
+      APPROVAL_LINK_COPY.once,
+    ],
+  },
+  {
+    name: "message: approved from a one-time link",
+    open: async (fx) => post(fx.browser, "/plan/approve", [["csrf", fx.csrf], ["t", await approvalLink(fx.userId, fx.app.clientId, fx.personal.email)], ["decision", "approve"]]),
+    status: 200,
+    csp: "page",
+    labels: () => [APPROVAL_LINK_COPY.approvedTitle, APPROVAL_LINK_COPY.approved],
+  },
+  {
+    name: "message: declined from a one-time link",
+    open: async (fx) => post(fx.browser, "/plan/approve", [["csrf", fx.csrf], ["t", await approvalLink(fx.userId, fx.app.clientId, fx.personal.email)], ["decision", "decline"]]),
+    status: 200,
+    csp: "page",
+    labels: () => [APPROVAL_LINK_COPY.declinedTitle, APPROVAL_LINK_COPY.declined],
+  },
+  {
+    name: "message: approval link not valid, or someone else's",
+    open: async (fx) => fx.freshBrowser.fetch(`/plan/approve?t=${await approvalLink(fx.userId, fx.app.clientId, fx.personal.email)}`),
+    status: 400,
+    csp: "page",
+    labels: () => [APPROVAL_LINK_COPY.invalidTitle, APPROVAL_LINK_COPY.invalid],
+  },
+  {
+    name: "message: approval without a choice",
+    open: async (fx) => post(fx.browser, "/plan/approve", [["csrf", fx.csrf], ["t", "nope"]]),
+    status: 400,
+    csp: "page",
+    labels: () => [APPROVAL_LINK_COPY.choiceTitle, APPROVAL_LINK_COPY.choice],
+  },
+  {
     name: "message: Google sign-in failed",
     open: () => new Browser().fetch("/google/callback?state=nope&code=nope"),
     status: 400,
@@ -347,7 +501,8 @@ describe("plain-language sweep", () => {
         throw new Error(`${p.name}: ${(e as Error).message}`);
       }
     }
-  });
+    // About 25 full page loads with sign-ins: more than the default 5 s budget on a loaded machine.
+  }, 30_000);
 
   it("shows Home's attention banner only for accounts that need reconnecting, each linking to its reconnect page", async () => {
     const fx = await fixture();
@@ -359,8 +514,12 @@ describe("plain-language sweep", () => {
     expect(page).toContain('href="/apps"');
     expect(page).toContain(`href="/apps/${id(fx.app.clientId)}"`);
     expect(page).toContain(`${HOME_COPY.allowed} <bdi>personal</bdi>`);
-    // Adding a Google account starts the existing connect flow for every service.
-    expect(page).toMatch(/<form method="post" action="\/connections\/connect" class="inline"><input type="hidden" name="csrf" value="[^"]+">(<input type="hidden" name="service" value="[a-z]+">){8}<button/);
+    // Adding a Google account starts the existing connect flow for the one-click services.
+    expect(page).toMatch(
+      new RegExp(
+        `<form method="post" action="/connections/connect" class="inline"><input type="hidden" name="csrf" value="[^"]+">${DEFAULT_CONNECT_SERVICES.map((s) => `<input type="hidden" name="service" value="${s}">`).join("")}<button`,
+      ),
+    );
     const freshHome = await (await fx.freshBrowser.fetch("/")).text();
     expect(freshHome).not.toContain('class="flash flash-warning"');
   });
@@ -377,6 +536,7 @@ const FLASH_PAGES: ReadonlyArray<[string, (fx: Fixture) => string]> = [
   ["AI apps", () => "/apps"],
   ["AI app details", (fx) => `/apps/${id(fx.app.clientId)}`],
   ["confirm removing an AI app", (fx) => `/apps/${id(fx.app.clientId)}/remove`],
+  ["who can use this", () => "/access"],
 ];
 
 /** Stores `flash` for the browser's next page through the real flash module, as a POST handler would. */
@@ -405,6 +565,25 @@ describe("errors in plain words", () => {
       expect([name, banner(page)]).toEqual([name, { role: "alert", text: plainError(code, "work") }]);
       expect([name, code, page.includes(code)]).toEqual([name, code, false]);
       expectPlainLanguage(page, { allow: fx.allow, connectorUrl: CONNECTOR });
+    }
+  });
+
+  it("words the access list's own results and refusals in plain words", async () => {
+    const fx = await fixture();
+    const cases: Array<[Flash, string]> = [
+      [{ tone: "success", kind: "access-saved" }, ACCESS_COPY.saved],
+      [{ tone: "success", kind: "access-removed" }, ACCESS_COPY.removed],
+      [{ tone: "warning", kind: "access-removed", code: "cleanup_incomplete" }, ACCESS_COPY.removedPartly],
+      [{ tone: "error", kind: "error", code: "last_admin" }, ACCESS_COPY.lastAdmin],
+      [{ tone: "error", kind: "error", code: "bad_pattern" }, ACCESS_COPY.badPattern],
+      [{ tone: "error", kind: "error", code: "conflict" }, ACCESS_COPY.conflict],
+    ];
+    for (const [flash, text] of cases) {
+      await plantFlash(fx.browser, fx.userId, flash);
+      const page = await (await fx.browser.fetch("/access")).text();
+      expect(banner(page)?.text).toBe(text);
+      if (flash.code !== undefined) expect(page).not.toContain(flash.code);
+      expectPlainLanguage(page, { allow: fx.allow });
     }
   });
 

@@ -1,6 +1,7 @@
 import { html, raw } from "hono/html";
 import type { HtmlEscapedString } from "hono/utils/html";
 import type { AccountStatus } from "../store/db";
+import { ACCESS_COPY, ACCESS_PATH } from "./access-copy";
 import { COPY, connectAppHelp } from "./copy";
 
 /**
@@ -201,7 +202,7 @@ export const PAGE_CSP = `default-src 'none'; style-src '${STYLE_HASH}' https://f
  */
 export const PAGE_REFERRER_POLICY = "same-origin";
 
-export type NavKey = "home" | "accounts" | "apps";
+export type NavKey = "home" | "accounts" | "apps" | "access";
 export type FlashTone = "success" | "warning" | "error";
 
 export interface ShellUser {
@@ -209,6 +210,8 @@ export interface ShellUser {
   email: string;
   /** The session's CSRF token, posted by the sign-out form. */
   csrf: string;
+  /** Shows the access list's nav item. Display only: the access routes check the role themselves. */
+  isAdmin?: boolean;
 }
 
 /** A banner's text, already worded by the page. */
@@ -247,7 +250,8 @@ function header(user: ShellUser | undefined, current: NavKey | undefined): Html 
   if (!user) {
     return html`<header class="top"><div class="wrap top-in"><a class="mark" href="/">${COPY.product}</a></div></header>`;
   }
-  const items = NAV.map(([key, href, label]) =>
+  const nav = user.isAdmin === true ? [...NAV, ["access", ACCESS_PATH, ACCESS_COPY.nav] as const] : NAV;
+  const items = nav.map(([key, href, label]) =>
     key === current ? html`<a href="${href}" aria-current="page">${label}</a>` : html`<a href="${href}">${label}</a>`,
   );
   return html`<header class="top"><div class="wrap top-in">

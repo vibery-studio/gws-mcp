@@ -1,0 +1,72 @@
+# gws-mcp behind Caddy (automatic TLS) on one host. Copy this folder's two files next to each other, then:
+#   1. build or pull the image:  docker build -t gws-mcp ..        (from this folder; the Dockerfile is in the repo root)
+#   2. create secrets.env with TOKEN_ENC_KEY, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, one NAME=value per line, then
+#      sudo chown 10001:10001 secrets.env && sudo chmod 400 secrets.env   (the server runs as 10001 and refuses a file
+#      others can read; plain compose mounts the file as it is on the host)
+#   3. create .env here with GWS_DOMAIN=gws.example.com
+#   4. docker compose up -d
+# Only Caddy publishes ports (80 and 443). gws-mcp is reachable only through it.
+
+services:
+  gws-mcp:
+    image: gws-mcp
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      PUBLIC_BASE_URL: https://${GWS_DOMAIN:?set GWS_DOMAIN in .env}
+      GOOGLE_UPSTREAM: google
+      GWS_SECRETS_FILE: /run/secrets/gws_secrets
+      # Trust the client address only from Caddy (its fixed address below), read from the header Caddy overwrites.
+      GWS_TRUSTED_PROXIES: 172.28.0.2
+      GWS_CLIENT_IP_HEADER: x-real-ip
+    secrets:
+      - gws_secrets
+    volumes:
+      - gws-data:/data
+    networks:
+      default: {}
+
+  caddy:
+    image: caddy:2.11-alpine
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      GWS_DOMAIN: ${GWS_DOMAIN:?set GWS_DOMAIN in .env}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile.example:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - gws-mcp
+    networks:
+      default:
+        ipv4_address: 172.28.0.2
+
+secrets:
+  gws_secrets:
+    file: ./secrets.env
+
+volumes:
+  gws-data:
+  caddy-data:
+  caddy-config:
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.28.0.0/24

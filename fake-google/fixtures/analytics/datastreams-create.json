@@ -1,0 +1,24 @@
+{
+  "id": "analytics-datastreams-create",
+  "source": "synthesized",
+  "provenance": "Discovery analyticsadmin v1beta rev 20261109 DataStream; served by the fake seeded with preset \"default\" for alice@fake.test",
+  "request": {
+    "method": "POST",
+    "path": "/analyticsadmin.googleapis.com/v1beta/properties/2001/dataStreams"
+  },
+  "response": {
+    "status": 200,
+    "headers": {},
+    "body": {
+      "name": "properties/2001/dataStreams/3550169101",
+      "type": "WEB_DATA_STREAM",
+      "webStreamData": {
+        "measurementId": "G-2KAQ8AFJ16",
+        "defaultUri": "https://blog.example.test"
+      },
+      "createTime": "2026-11-10T03:00:00.000Z",
+      "updateTime": "2026-11-10T03:00:00.000Z",
+      "displayName": "Blog"
+    }
+  }
+}

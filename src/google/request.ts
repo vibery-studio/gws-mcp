@@ -111,11 +111,38 @@ function collisionsFor(meta: MethodMeta): ReadonlyMap<string, ReadonlySet<string
 }
 
 /**
+ * Reserved values keep "/" as the segment separator, so a percent sign could smuggle an escaped separator, dot or
+ * double escape past the pattern check if anything decodes the path more than once. No resource name of a
+ * reserved-path method needs one, so reserved values refuse "%" outright.
+ */
+const PERCENT = "%";
+
+const compiledPatterns = new Map<string, RegExp>();
+
+/** The compiled Discovery pattern; generated patterns are anchored fixed-segment expressions (see scripts/gen). */
+function compiled(pattern: string): RegExp {
+  let re = compiledPatterns.get(pattern);
+  if (re === undefined) {
+    try {
+      re = new RegExp(pattern, "u");
+    } catch {
+      throw new GwsError("GWS_INTERNAL", "a path parameter pattern does not compile", { details: { reason: "bad-path-pattern" } });
+    }
+    compiledPatterns.set(pattern, re);
+  }
+  return re;
+}
+
+type PathParam = MethodMeta["pathParams"][number];
+
+/**
  * Validates and encodes one path param. Simple expansion percent-encodes everything (including "/"); reserved
  * expansion keeps "/" between individually encoded segments. Dot segments are refused for both, and empty
- * segments for reserved values (a leading "//" or "/" could otherwise retarget the request).
+ * segments and percent signs for reserved values (a leading "//" or "/" could otherwise retarget the
+ * request). A param with a Discovery pattern must match it, so a reserved value cannot name another resource.
  */
-function expandParam(name: string, value: unknown, reserved: boolean, routeLiterals: ReadonlySet<string> | undefined): string {
+function expandParam(param: PathParam, value: unknown, routeLiterals: ReadonlySet<string> | undefined): string {
+  const { name, pattern, reserved } = param;
   if (value === undefined || value === null) throw invalid(`missing path parameter ${name}`, { param: name, reason: "missing" });
   if (typeof value !== "string" && typeof value !== "number") {
     throw invalid(`path parameter ${name} must be a string`, { param: name, reason: "not-scalar" });
@@ -131,10 +158,20 @@ function expandParam(name: string, value: unknown, reserved: boolean, routeLiter
   if (!reserved && routeLiterals?.has(text)) {
     throw invalid(`path parameter ${name} would reach a different method`, { param: name, reason: "path-collides-with-route" });
   }
-  if (!reserved) return encodeURIComponent(text);
-  if (segments.some((s) => s === "")) {
+  if (reserved && segments.some((s) => s === "")) {
     throw invalid(`path parameter ${name} has an empty segment`, { param: name, reason: "empty-segment" });
   }
+  if (reserved && text.includes(PERCENT)) {
+    throw invalid(`path parameter ${name} has a percent sign`, { param: name, reason: "percent-sign" });
+  }
+  if (pattern !== undefined && !compiled(pattern).test(text)) {
+    throw invalid(`path parameter ${name} does not match the expected form ${pattern}`, {
+      param: name,
+      reason: "pattern-mismatch",
+      expected: pattern,
+    });
+  }
+  if (!reserved) return encodeURIComponent(text);
   return segments.map(encodeURIComponent).join("/");
 }
 
@@ -144,7 +181,12 @@ function expandPath(meta: MethodMeta, template: string, input: Record<string, un
   return template.replace(TEMPLATE_VAR, (_m, plus: string, name: string) => {
     const param = declared.get(name);
     if (!param) throw new GwsError("GWS_INTERNAL", `path template names an undeclared parameter ${name}`);
-    return expandParam(name, input[name], param.reserved || plus === "+", collisions?.get(name));
+    // Every template of a method (its path and upload paths) must expand a param the way it was declared, so a
+    // reserved expansion always comes with the pattern and checks of a reserved param.
+    if ((plus === "+") !== param.reserved) {
+      throw new GwsError("GWS_INTERNAL", `path template expands ${name} unlike its declaration`, { details: { reason: "expansion-mismatch" } });
+    }
+    return expandParam(param, input[name], collisions?.get(name));
   });
 }
 

@@ -1,0 +1,76 @@
+{
+  "id": "tagmanager-workspace-status",
+  "source": "synthesized",
+  "provenance": "Discovery tagmanager v2 rev 20261111 GetWorkspaceStatusResponse; served by the fake seeded with preset \"default\" for alice@fake.test",
+  "request": {
+    "method": "GET",
+    "path": "/tagmanager.googleapis.com/tagmanager/v2/accounts/6001001001/containers/9001001/workspaces/1/status"
+  },
+  "response": {
+    "status": 200,
+    "headers": {},
+    "body": {
+      "workspaceChange": [
+        {
+          "tag": {
+            "path": "accounts/6001001001/containers/9001001/workspaces/1/tags/2",
+            "accountId": "6001001001",
+            "containerId": "9001001",
+            "workspaceId": "1",
+            "tagId": "2",
+            "name": "Signup event",
+            "type": "html",
+            "parameter": [
+              {
+                "type": "template",
+                "key": "html",
+                "value": "<b>signup</b>"
+              }
+            ],
+            "firingTriggerId": [
+              "2"
+            ],
+            "tagManagerUrl": "https://tagmanager.google.com/#/container/accounts/6001001001/containers/9001001/workspaces/1/tags/2?apiLink=tag",
+            "fingerprint": "2075938918"
+          },
+          "changeStatus": "added"
+        },
+        {
+          "trigger": {
+            "path": "accounts/6001001001/containers/9001001/workspaces/1/triggers/2",
+            "accountId": "6001001001",
+            "containerId": "9001001",
+            "workspaceId": "1",
+            "triggerId": "2",
+            "name": "Signup click",
+            "type": "click",
+            "tagManagerUrl": "https://tagmanager.google.com/#/container/accounts/6001001001/containers/9001001/workspaces/1/triggers/2?apiLink=trigger",
+            "fingerprint": "2760641980"
+          },
+          "changeStatus": "added"
+        },
+        {
+          "variable": {
+            "path": "accounts/6001001001/containers/9001001/workspaces/1/variables/2",
+            "accountId": "6001001001",
+            "containerId": "9001001",
+            "workspaceId": "1",
+            "variableId": "2",
+            "name": "Plan",
+            "type": "c",
+            "parameter": [
+              {
+                "type": "template",
+                "key": "value",
+                "value": "pro"
+              }
+            ],
+            "tagManagerUrl": "https://tagmanager.google.com/#/container/accounts/6001001001/containers/9001001/workspaces/1/variables/2?apiLink=variable",
+            "fingerprint": "829192189"
+          },
+          "changeStatus": "added"
+        }
+      ]
+    }
+  }
+}

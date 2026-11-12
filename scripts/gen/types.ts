@@ -19,6 +19,8 @@ export interface DiscoveryParam extends DiscoverySchema {
   location: string;
   required?: boolean;
   repeated?: boolean;
+  /** Regular expression a path parameter's value must match, e.g. `^accounts/[^/]+$`. */
+  pattern?: string;
 }
 
 export interface DiscoveryMediaProtocol {

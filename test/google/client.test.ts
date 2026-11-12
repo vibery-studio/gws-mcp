@@ -323,3 +323,39 @@ describe("callGoogle response handling", () => {
     expect(e.code).toBe("GWS_INTERNAL");
   });
 });
+
+describe("callGoogle: Google Ads headers", () => {
+  const listCustomers = generatedFns.find((f) => f.name === "googleads.customers.listAccessibleCustomers")?.method;
+  const ads = { developerToken: "FAKE-dev-token-client-test", loginCustomerId: "5550001111" };
+
+  function capture(): { transport: Transport; headers: Headers[] } {
+    const headers: Headers[] = [];
+    return { headers, transport: async (_url, init) => (headers.push(new Headers(init?.headers)), Response.json({})) };
+  }
+
+  it("adds developer-token and login-customer-id to a Google Ads request", async () => {
+    if (!listCustomers) throw new Error("no Ads method");
+    const c = capture();
+    await callGoogle(listCustomers, {}, { accessToken: "t", transport: c.transport, maxResponseBytes: MAX, ads });
+    expect([c.headers[0]?.get("developer-token"), c.headers[0]?.get("login-customer-id")]).toEqual([ads.developerToken, ads.loginCustomerId]);
+    const noLogin = capture();
+    await callGoogle(listCustomers, {}, { accessToken: "t", transport: noLogin.transport, maxResponseBytes: MAX, ads: { developerToken: ads.developerToken } });
+    expect(noLogin.headers[0]?.has("login-customer-id")).toBe(false);
+  });
+
+  it("never adds them to a request for another host, even when given", async () => {
+    const c = capture();
+    await callGoogle(filesGet, { fileId: "x" }, { accessToken: "t", transport: c.transport, maxResponseBytes: MAX, ads });
+    expect([c.headers[0]?.has("developer-token"), c.headers[0]?.has("login-customer-id")]).toEqual([false, false]);
+  });
+
+  it("refuses a Google Ads request without a developer token before sending it", async () => {
+    if (!listCustomers) throw new Error("no Ads method");
+    for (const given of [undefined, { developerToken: "" }]) {
+      const c = capture();
+      const e = await rejection(callGoogle(listCustomers, {}, { accessToken: "t", transport: c.transport, maxResponseBytes: MAX, ...(given ? { ads: given } : {}) }));
+      expect(e.code).toBe("GWS_ADS_DEVELOPER_TOKEN_MISSING");
+      expect(c.headers).toEqual([]);
+    }
+  });
+});

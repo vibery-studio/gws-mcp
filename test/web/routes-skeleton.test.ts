@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 import { sha256Hex } from "../../src/auth/session";
+import { GOOGLE_SERVICES } from "../../src/config";
 import { openStore } from "../../src/store/db";
 import { webApp } from "../../src/web/app";
 import { GUARDED_POST_PATHS } from "../../src/web/connections";
@@ -244,7 +245,7 @@ describe("read model", () => {
     expect(m.account(other.account.id)).toBeUndefined();
     expect(m.allowedAccounts(theirs.id)).toEqual([]);
     expect(m.account(a.account.id)).toMatchObject({ name: a.account.email, isPrimary: true, isDefault: true, services: ["gmail", "drive"] });
-    expect(m.account(a.account.id)?.missingServices).toEqual(["calendar", "sheets", "docs", "forms", "tasks", "slides"]);
+    expect(m.account(a.account.id)?.missingServices).toEqual(GOOGLE_SERVICES.filter((s) => s !== "gmail" && s !== "drive"));
     expect(m.account(c.account.id)).toMatchObject({ name: "work", alias: "work", isPrimary: false, services: [], status: "disconnected" });
   });
 });

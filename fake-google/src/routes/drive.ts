@@ -465,6 +465,22 @@ async function createPermission(ctx: FakeContext): Promise<Response> {
   return selected(ctx, rec, PERMISSION_DEFAULT);
 }
 
+async function getPermission(ctx: FakeContext): Promise<Response> {
+  const fileId = fileIdOf(ctx);
+  if (!(await loadFile(ctx, fileId))) return fileNotFound(fileId);
+  const permissionId = decodeURIComponent(ctx.match[2] ?? "");
+  const sub = (await getAccount(ctx.store, ctx.email))?.sub ?? "0";
+  const rec =
+    permissionId === sub
+      ? ({ kind: "drive#permission", id: sub, type: "user", role: "owner", emailAddress: ctx.email } satisfies PermissionRecord)
+      : await ctx.store.get<PermissionRecord>(`${permissionPrefix(ctx.email, fileId)}${permissionId}`);
+  if (!rec) {
+    const message = `Permission not found: ${permissionId}.`;
+    return googleError(404, message, "NOT_FOUND", { errors: [{ message, domain: "global", reason: "notFound", location: "permissionId", locationType: "parameter" }] });
+  }
+  return selected(ctx, rec, PERMISSION_DEFAULT);
+}
+
 async function listPermissions(ctx: FakeContext): Promise<Response> {
   const fileId = fileIdOf(ctx);
   if (!(await loadFile(ctx, fileId))) return fileNotFound(fileId);
@@ -504,6 +520,7 @@ export const routes: FakeRoute[] = [
   { method: "POST", pattern: new RegExp(`${FILES}/${FILE_ID}/copy$`), scopes: SCOPES.copy, handle: copyFile },
   { method: "POST", pattern: new RegExp(`${FILES}/${FILE_ID}/permissions$`), scopes: SCOPES.permissionsCreate, handle: createPermission },
   { method: "GET", pattern: new RegExp(`${FILES}/${FILE_ID}/permissions$`), scopes: SCOPES.permissionsList, handle: listPermissions },
+  { method: "GET", pattern: new RegExp(`${FILES}/${FILE_ID}/permissions/([^/]+)$`), scopes: SCOPES.permissionsList, handle: getPermission },
   { method: "GET", pattern: new RegExp(`${FILES}/${FILE_ID}$`), scopes: SCOPES.get, handle: getFile },
   { method: "PATCH", pattern: new RegExp(`${FILES}/${FILE_ID}$`), scopes: SCOPES.update, handle: updateFile },
   { method: "DELETE", pattern: new RegExp(`${FILES}/${FILE_ID}$`), scopes: SCOPES.delete, handle: deleteFile },

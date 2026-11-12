@@ -129,7 +129,8 @@ describe("execute", () => {
 
   it("applies the same snippet with apply:true: the file and its public permission exist at the fake", async () => {
     const { auth, email } = await driveAccount();
-    const out = await exec(auth, CREATE_AND_SHARE, { apply: true });
+    // With human approval off, as before it existed (test/web/approval-link.test.ts covers it on).
+    const out = await exec(auth, CREATE_AND_SHARE, { apply: true, config: { GWS_HUMAN_APPROVAL: [] } });
 
     expect(out.error).toBeUndefined();
     expect(out).toMatchObject({ ok: true, applied: true, plan: [] });

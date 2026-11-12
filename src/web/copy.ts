@@ -124,6 +124,15 @@ export const SERVICE_NAMES: Readonly<Record<GoogleService, string>> = {
   forms: "Forms",
   tasks: "Tasks",
   slides: "Slides",
+  searchconsole: "Search Console",
+  analytics: "Analytics",
+  analyticsadmin: "Analytics (edit)",
+  ads: "Google Ads",
+  groups: "Google Groups",
+  tagmanager: "Tag Manager",
+  tagmanageredit: "Tag Manager (edit)",
+  tagmanagerpublish: "Tag Manager (publish)",
+  tagmanageradmin: "Tag Manager (admin)",
 };
 
 interface ServiceCopy {
@@ -134,6 +143,24 @@ interface ServiceCopy {
 
 const G = "https://www.googleapis.com/auth/";
 const FULL_CONTROL = (what: string) => `See, create, change and delete ${what}.`;
+
+/** Descriptions that are the same in both presets, because both ask the same scopes. */
+const ANALYTICS: ServiceCopy = { writtenFor: [`${G}analytics.readonly`], text: "See your Analytics reports and settings." };
+const ANALYTICS_EDIT: ServiceCopy = { writtenFor: [`${G}analytics.edit`], text: "See, change and delete your Analytics accounts, properties and settings." };
+const ADS: ServiceCopy = { writtenFor: [`${G}adwords`], text: "See and change your Google Ads accounts, campaigns, budgets and bids, which can spend money." };
+const TAG_MANAGER: ServiceCopy = { writtenFor: [`${G}tagmanager.readonly`], text: "See your Tag Manager accounts, containers, tags, triggers and variables." };
+const TAG_MANAGER_EDIT: ServiceCopy = {
+  writtenFor: [`${G}tagmanager.edit.containers`],
+  text: "Create and change Tag Manager containers, and create, change and delete tags, triggers and variables.",
+};
+const TAG_MANAGER_PUBLISH: ServiceCopy = {
+  writtenFor: [`${G}tagmanager.edit.containerversions`, `${G}tagmanager.publish`],
+  text: "Save, change and delete Tag Manager container versions, and publish them to your live website.",
+};
+const TAG_MANAGER_ADMIN: ServiceCopy = {
+  writtenFor: [`${G}tagmanager.manage.accounts`, `${G}tagmanager.manage.users`, `${G}tagmanager.delete.containers`],
+  text: "Change your Tag Manager account settings and who can use them, and delete containers and workspaces.",
+};
 
 /**
  * One plain line per service and scope preset, matching everything the connect flow requests for it
@@ -155,6 +182,18 @@ const SERVICE_COPY: Readonly<Record<ScopePreset, Readonly<Record<GoogleService, 
     },
     tasks: { writtenFor: [`${G}tasks`], text: FULL_CONTROL("your tasks") },
     slides: { writtenFor: [`${G}presentations`], text: FULL_CONTROL("your presentations") },
+    searchconsole: { writtenFor: [`${G}webmasters.readonly`], text: "See your websites in Search Console and how they appear in Google Search." },
+    analytics: ANALYTICS,
+    analyticsadmin: ANALYTICS_EDIT,
+    ads: ADS,
+    groups: {
+      writtenFor: [`${G}admin.directory.group.readonly`, `${G}admin.directory.group.member.readonly`, `${G}apps.groups.settings`],
+      text: "For Workspace admins: see your organization's Google Groups and members, and change group settings.",
+    },
+    tagmanager: TAG_MANAGER,
+    tagmanageredit: TAG_MANAGER_EDIT,
+    tagmanagerpublish: TAG_MANAGER_PUBLISH,
+    tagmanageradmin: TAG_MANAGER_ADMIN,
   },
   full: {
     gmail: { writtenFor: ["https://mail.google.com/"], text: "Read, send, organize and permanently delete your email." },
@@ -168,6 +207,18 @@ const SERVICE_COPY: Readonly<Record<ScopePreset, Readonly<Record<GoogleService, 
     },
     tasks: { writtenFor: [`${G}tasks`], text: FULL_CONTROL("your tasks") },
     slides: { writtenFor: [`${G}presentations`], text: FULL_CONTROL("your presentations") },
+    searchconsole: { writtenFor: [`${G}webmasters`], text: "Add and remove your sites and sitemaps in Search Console, and see how they appear in Google Search." },
+    analytics: ANALYTICS,
+    analyticsadmin: ANALYTICS_EDIT,
+    ads: ADS,
+    groups: {
+      writtenFor: [`${G}admin.directory.group`, `${G}admin.directory.group.member`, `${G}apps.groups.settings`],
+      text: "For Workspace admins: see, create, change and delete your organization's groups, members and settings.",
+    },
+    tagmanager: TAG_MANAGER,
+    tagmanageredit: TAG_MANAGER_EDIT,
+    tagmanagerpublish: TAG_MANAGER_PUBLISH,
+    tagmanageradmin: TAG_MANAGER_ADMIN,
   },
 };
 
@@ -211,10 +262,14 @@ export function plainError(code: string, account?: string): string {
       return "That Google account isn't connected. Add it from Google accounts.";
     case "GWS_NO_DEFAULT_ACCOUNT":
       return "No default account is set. Choose one from Google accounts.";
+    case "GWS_ADMIN_REQUIRED":
+      return "Google Groups works only with a Google Workspace admin account. Personal Gmail accounts and Workspace users who aren't admins can't use it.";
     case "GWS_ACCOUNT_TAKEN":
       return "This Google account is already connected to another gws-mcp user.";
     case "GWS_CONFIRMATION_REQUIRED":
       return "This change needs your confirmation. Open the link your AI app gave you.";
+    case "GWS_APPROVAL_REQUIRED":
+      return "This needs your approval first. Open the approval link your AI app gave you.";
     case "GWS_INVALID_INPUT":
       return "Some details weren't valid. Check them and try again.";
     case "GWS_RATE_LIMITED":

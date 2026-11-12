@@ -18,6 +18,8 @@ export const DEFAULT_WEB_PORT = 8787;
  * runs. Only the key file can be used then; a setup that chose the keychain is refused rather than silently moved.
  */
 export const NO_KEYCHAIN_ENV = "GWS_MCP_NO_KEYCHAIN";
+/** The environment variable that would turn on human approval; locally only `off` is accepted (see `settingsConfig`). */
+export const HUMAN_APPROVAL_ENV = "GWS_HUMAN_APPROVAL";
 
 /** The config limits a user may tune; each is bounded by the shared config schema. */
 const LIMIT_KEYS = [
@@ -131,16 +133,21 @@ export function redirectOrigin(settings: Pick<Settings, "clientType" | "port">, 
 /**
  * The shared config the local runtime runs with: the settings' upstream and preset, the defaults or the settings'
  * limits (CALL_INPUT_MAX_BYTES among them, which sizes the sandbox bridge), and the redirect origin as
- * PUBLIC_BASE_URL. Fails with GWS_INTERNAL naming the bad keys.
+ * PUBLIC_BASE_URL. `humanApproval` is the GWS_HUMAN_APPROVAL environment variable: locally only `off` (or unset) is
+ * accepted, since no web page exists where a person could approve. Fails with GWS_INTERNAL naming the bad keys.
  */
-export function settingsConfig(settings: Settings, publicBaseUrl = redirectOrigin(settings)): Config {
-  return loadConfig({
-    ...settings.limits,
-    GOOGLE_UPSTREAM: settings.upstream,
-    PUBLIC_BASE_URL: publicBaseUrl,
-    FAKE_GOOGLE_PUBLIC_URL: settings.fakeGoogleUrl,
-    GOOGLE_SCOPE_PRESET: settings.preset,
-  });
+export function settingsConfig(settings: Settings, publicBaseUrl = redirectOrigin(settings), humanApproval?: string): Config {
+  return loadConfig(
+    {
+      ...settings.limits,
+      GOOGLE_UPSTREAM: settings.upstream,
+      PUBLIC_BASE_URL: publicBaseUrl,
+      FAKE_GOOGLE_PUBLIC_URL: settings.fakeGoogleUrl,
+      GOOGLE_SCOPE_PRESET: settings.preset,
+      GWS_HUMAN_APPROVAL: humanApproval,
+    },
+    "local",
+  );
 }
 
 /** The keyring to use: none at all when NO_KEYCHAIN_ENV is set, else what the platform offers. */
@@ -182,7 +189,7 @@ export function notSetUp(dir: string, self: string): GwsError {
  * Opens the runtime from `dir` (`self`: how to run the CLI, for the hints in its errors): the settings, the secrets in the chosen storage, the store with the settings'
  * upstream, and the ports built from the settings' config. Fails before setup, or when the key is missing.
  */
-export async function openRuntime(dir: string, keyring: KeyringProbe, self: string): Promise<LocalRuntime> {
+export async function openRuntime(dir: string, keyring: KeyringProbe, self: string, env: Readonly<Record<string, string | undefined>> = {}): Promise<LocalRuntime> {
   if (!fs.existsSync(dir)) throw notSetUp(dir, self);
   const dirCheck = ensurePrivateDir(dir);
   const settings = readSettings(dir);
@@ -191,7 +198,7 @@ export async function openRuntime(dir: string, keyring: KeyringProbe, self: stri
   if (secrets.source.get("TOKEN_ENC_KEY") === undefined) {
     throw new GwsError("GWS_INTERNAL", `the encryption key is missing from the chosen key storage. Run: ${self} setup`);
   }
-  const config = settingsConfig(settings);
+  const config = settingsConfig(settings, redirectOrigin(settings), env[HUMAN_APPROVAL_ENV]);
   const store = openLocalStore({ dir, upstream: settings.upstream, secrets: secrets.source, redactor: secrets.redactor });
   try {
     const ports = localPorts({ config, store, secrets });

@@ -4,7 +4,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { revokeClient } from "../../src/auth/clients";
 import { providerOptions } from "../../src/auth/provider-options";
 import { loadConfig } from "../../src/config";
-import { EXECUTE_DESCRIPTION, mcpApiHandler } from "../../src/mcp/server";
+import { EXECUTE_DESCRIPTION, mcpApiHandler, remoteExecuteDescription } from "../../src/mcp/server";
 import { webApp } from "../../src/web/app";
 import { seedUserWithAccount } from "../helpers/accounts";
 import { fake, uniqueEmail } from "../helpers/fake";
@@ -92,7 +92,12 @@ describe("MCP endpoint", () => {
     expect(r.status).toBe(200);
     const tools = (r.message?.result?.tools ?? []) as Array<{ name: string; description: string }>;
     expect(tools.map((t) => t.name).sort()).toEqual(["execute", "search"]);
-    expect(tools.find((t) => t.name === "execute")?.description).toBe(EXECUTE_DESCRIPTION);
+    // The remote description adds the human approval flow for this deployment's list (the default here).
+    const description = tools.find((t) => t.name === "execute")?.description;
+    expect(description).toBe(remoteExecuteDescription(env));
+    expect(description).toContain("Steps with reason spend, public-share, owner-transfer, permission-change, publish are marked needsApproval");
+    expect(description).toContain("GWS_APPROVAL_REQUIRED");
+    expect(EXECUTE_DESCRIPTION).not.toContain("needsApproval");
   });
 
   it("states the dry-run default and that the plan is advisory in the execute description", () => {

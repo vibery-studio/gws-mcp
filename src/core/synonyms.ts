@@ -34,4 +34,33 @@ export const SYNONYMS: Readonly<Record<string, readonly string[]>> = {
   account: ["accounts"],
   connect: ["accounts"],
   alias: ["accounts"],
+  allowlist: ["access"],
+  admin: ["access"],
+  who: ["access"],
+  permit: ["access"],
+  seo: ["searchconsole", "searchanalytics"],
+  gsc: ["searchconsole", "searchanalytics"],
+  console: ["searchconsole"],
+  traffic: ["analyticsdata", "report"],
+  session: ["analyticsdata", "report"],
+  ga4: ["analyticsdata", "analyticsadmin"],
+  analytics: ["analyticsdata", "analyticsadmin"],
+  ads: ["googleads"],
+  adwords: ["googleads"],
+  campaign: ["googleads"],
+  group: ["groups"],
+  member: ["directory", "members"],
+  free: ["freebusy"],
+  availability: ["freebusy"],
+  gtm: ["tagmanager"],
+  // "tag" also finds Gmail and Drive labels, so "gmail tag" or "tag an email" stays with Gmail; Tag Manager
+  // methods already carry "tag" in their names. "manager" makes "tag manager" mean the service.
+  tag: ["label"],
+  manager: ["tagmanager"],
+  trigger: ["tagmanager"],
+  variable: ["tagmanager"],
+  container: ["tagmanager"],
+  // "publish" and "workspace" have no synonym on purpose. Their name segments already find the Tag Manager
+  // methods; a tagmanager synonym would push the Forms publish down for a bare "publish", and send
+  // "Google Workspace" questions to Tag Manager.
 };

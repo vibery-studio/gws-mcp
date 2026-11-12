@@ -1,0 +1,58 @@
+{
+  "id": "ads-search-ad-groups",
+  "source": "synthesized",
+  "provenance": "Discovery googleads v23 rev 20261106 SearchGoogleAdsResponse; served by the fake seeded with preset \"default\" for alice@fake.test",
+  "request": {
+    "method": "POST",
+    "path": "/googleads.googleapis.com/v23/customers/9876543210/googleAds:search"
+  },
+  "response": {
+    "status": 200,
+    "headers": {},
+    "body": {
+      "results": [
+        {
+          "adGroup": {
+            "resourceName": "customers/9876543210/adGroups/1001",
+            "id": "1001",
+            "name": "Brand exact"
+          },
+          "campaign": {
+            "name": "Brand search"
+          }
+        },
+        {
+          "adGroup": {
+            "resourceName": "customers/9876543210/adGroups/1002",
+            "id": "1002",
+            "name": "Brand phrase"
+          },
+          "campaign": {
+            "name": "Brand search"
+          }
+        },
+        {
+          "adGroup": {
+            "resourceName": "customers/9876543210/adGroups/1003",
+            "id": "1003",
+            "name": "Asset group"
+          },
+          "campaign": {
+            "name": "Shopping feed"
+          }
+        },
+        {
+          "adGroup": {
+            "resourceName": "customers/9876543210/adGroups/1004",
+            "id": "1004",
+            "name": "Remarketing"
+          },
+          "campaign": {
+            "name": "Winter promo"
+          }
+        }
+      ],
+      "fieldMask": "adGroup.id,adGroup.name,campaign.name"
+    }
+  }
+}

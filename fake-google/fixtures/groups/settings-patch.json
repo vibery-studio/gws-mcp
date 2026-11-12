@@ -1,0 +1,30 @@
+{
+  "id": "groups-settings-patch",
+  "source": "synthesized",
+  "provenance": "Discovery groupssettings v1 rev 20220614 Groups; served by the fake seeded with preset \"default\" for alice@fake.test",
+  "request": {
+    "method": "PATCH",
+    "path": "/www.googleapis.com/groups/v1/groups/team@fake.test"
+  },
+  "response": {
+    "status": 200,
+    "headers": {},
+    "body": {
+      "kind": "groupsSettings#groups",
+      "email": "team@fake.test",
+      "name": "Team",
+      "description": "Everyone on the team",
+      "whoCanJoin": "ANYONE_CAN_JOIN",
+      "whoCanViewMembership": "ALL_MEMBERS_CAN_VIEW",
+      "whoCanViewGroup": "ALL_MEMBERS_CAN_VIEW",
+      "whoCanPostMessage": "ALL_MEMBERS_CAN_POST",
+      "allowExternalMembers": "true",
+      "allowWebPosting": "true",
+      "isArchived": "true",
+      "archiveOnly": "false",
+      "messageModerationLevel": "MODERATE_NONE",
+      "membersCanPostAsTheGroup": "false",
+      "includeInGlobalAddressList": "true"
+    }
+  }
+}

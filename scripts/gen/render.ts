@@ -113,7 +113,7 @@ export function renderService(e: EmittedService): string {
   });
   const union = names.length === 0 ? "never" : names.map(lit).join(" | ");
   return [
-    HEADER(`discovery/${e.service}.${e.version}.json`, e.revision),
+    HEADER(`discovery/${e.api}.${e.version}.json`, e.revision),
     'import { z } from "zod";',
     'import type { FnDef, MethodMeta } from "../../contracts";',
     "",
@@ -129,7 +129,7 @@ export function renderService(e: EmittedService): string {
     "};",
     "",
     RUNTIME,
-    `export const ${e.service}Fns: FnDef[] = [`,
+    `export const ${e.api}Fns: FnDef[] = [`,
     ...e.methods.map(renderMethod),
     "];",
     "",

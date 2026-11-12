@@ -12,7 +12,9 @@ import { describe, expect, it } from "vitest";
  * through the ports in src/core/ports.ts). The scan reads the TypeScript syntax tree, so comments and strings
  * never count and type-only imports do. A second check compiles the core with Node types only: any Workers
  * ambient name (a type or a global such as `caches`) is then a compile error, whatever its name. In the other
- * direction, the Workers wiring never reaches the local runtime (src/local).
+ * direction, the Workers wiring never reaches the local runtime (src/local) or the Node host (src/runtime/node), and
+ * the Node host reaches the local runtime only for its sandbox and Cloudflare-only modules only through the
+ * stand-ins its bundle aliases.
  */
 
 const ROOT = path.resolve(import.meta.dirname, "..", "..");
@@ -34,6 +36,11 @@ const GLOBAL_OBJECTS: ReadonlySet<string> = new Set(["globalThis", "self", "glob
 const WORKERS_WIRING_DIRS = ["src/runtime/workers", "src/mcp", "src/web", "src/auth"];
 const WORKERS_WIRING_FILES = ["src/index.ts"];
 const LOCAL_RUNTIME = "src/local";
+
+/** The Node host: the Worker app on Node. Its bundle aliases `cloudflare:workers` and the Workers sandbox module. */
+const NODE_HOST_DIR = "src/runtime/node";
+/** The only local-runtime files the Node host may reach: the worker-thread sandbox. */
+const NODE_HOST_LOCAL_FILES: ReadonlySet<string> = new Set(["src/local/sandbox.ts", "src/local/sandbox-worker.ts"]);
 
 /** Ambient Workers platform types: the Worker env, its bindings and its handler types. */
 const PLATFORM_TYPE =
@@ -200,8 +207,8 @@ function compileNodeOnly(files: readonly string[], probes: Readonly<Record<strin
   });
 }
 
-/** Files of the Workers wiring, transitively, that import something under src/local (present or not). */
-function workersReachingLocal(starts: readonly string[], text: (file: string) => string): string[] {
+/** Files reached from `starts`, transitively, that import something under `forbidden` (present or not). */
+function workersReachingLocal(starts: readonly string[], text: (file: string) => string, forbidden: string = LOCAL_RUNTIME): string[] {
   const seen = new Set<string>();
   const violations: string[] = [];
   const queue = [...starts];
@@ -213,8 +220,8 @@ function workersReachingLocal(starts: readonly string[], text: (file: string) =>
       if (!specifier.startsWith(".")) continue;
       const clean = specifier.replace(/\?.*$/, "");
       const named = rel(path.resolve(ROOT, path.dirname(file), clean));
-      if (named === LOCAL_RUNTIME || named.startsWith(`${LOCAL_RUNTIME}/`)) {
-        violations.push(`${file}:${line}: imports "${specifier}", which is the local runtime`);
+      if (named === forbidden || named.startsWith(`${forbidden}/`)) {
+        violations.push(`${file}:${line}: imports "${specifier}", which is under ${forbidden}`);
         continue;
       }
       const target = resolveRelative(file, clean);
@@ -226,6 +233,24 @@ function workersReachingLocal(starts: readonly string[], text: (file: string) =>
 
 const workersWiring = [...WORKERS_WIRING_DIRS.flatMap(tsFilesUnder), ...WORKERS_WIRING_FILES];
 const readSource = (file: string) => readFileSync(path.join(ROOT, file), "utf8");
+const nodeHost = tsFilesUnder(NODE_HOST_DIR);
+
+/** Every source file reached from `starts` through relative imports, transitively (`?raw` assets excluded). */
+function reachable(starts: readonly string[]): Set<string> {
+  const seen = new Set<string>();
+  const queue = [...starts];
+  while (queue.length > 0) {
+    const file = queue.shift() as string;
+    if (seen.has(file)) continue;
+    seen.add(file);
+    for (const { specifier } of scanSource(file, readSource(file)).imports) {
+      if (!specifier.startsWith(".") || specifier.endsWith("?raw")) continue;
+      const target = resolveRelative(file, specifier);
+      if (target !== undefined && target.startsWith("src/")) queue.push(target);
+    }
+  }
+  return seen;
+}
 
 describe("the platform-free core", () => {
   it("starts from every core file", () => {
@@ -238,6 +263,8 @@ describe("the platform-free core", () => {
   it("reaches no Cloudflare module, Worker env, platform type or adapter, however indirectly", () => {
     const { reached, violations } = scanGraph(roots);
     expect(violations).toEqual([]);
+    // Neither runtime's adapters: the Workers wiring, nor the Node host and its node:* modules.
+    expect(reached.filter((f) => f.startsWith("src/runtime/") || f.startsWith("src/local/"))).toEqual([]);
     // The shared modules the core really depends on are scanned too, not skipped.
     for (const file of ["src/contracts.ts", "src/config.ts", "src/errors.ts", "src/google/oauth.ts", "src/google/transport.ts", "src/google/client.ts"]) {
       expect(reached).toContain(file);
@@ -268,6 +295,34 @@ describe("the Workers wiring", () => {
     const text = (file: string) => files[file] ?? readSource(file);
     expect(workersReachingLocal(["src/runtime/workers/probe.ts"], text)).toHaveLength(1);
     expect(workersReachingLocal(["src/mcp/probe.ts"], text)).toHaveLength(1);
+  });
+});
+
+describe("the Node host", () => {
+  it("starts from every Node host file", () => {
+    for (const file of ["main.ts", "access-command.ts", "backup-command.ts", "command-common.ts", "log.ts", "host.ts", "http.ts", "config.ts", "database.ts", "migrations.ts", "d1.ts", "kv.ts", "workers-sandbox.ts", "cloudflare-workers.ts"]) {
+      expect(nodeHost).toContain(`${NODE_HOST_DIR}/${file}`);
+    }
+  });
+
+  it("is never reached by the Workers wiring, so no node:* module enters the Worker bundle", () => {
+    expect(workersReachingLocal(workersWiring, readSource, NODE_HOST_DIR)).toEqual([]);
+    expect(workersReachingLocal(["src/runtime/workers/probe.ts"], (f) => (f === "src/runtime/workers/probe.ts" ? 'import "../node/d1";' : readSource(f)), NODE_HOST_DIR)).toHaveLength(1);
+  });
+
+  it("reaches the local runtime only for its sandbox", () => {
+    const local = [...reachable(nodeHost)].filter((f) => f === LOCAL_RUNTIME || f.startsWith(`${LOCAL_RUNTIME}/`));
+    expect(local.filter((f) => !NODE_HOST_LOCAL_FILES.has(f))).toEqual([]);
+    expect(local).toContain("src/local/sandbox.ts");
+  });
+
+  it("imports no Cloudflare-only module itself; only the bundle's aliases stand in for them", () => {
+    const direct = nodeHost.flatMap((file) =>
+      scanSource(file, readSource(file))
+        .imports.filter(({ specifier }) => specifier.startsWith("cloudflare:") || specifier.startsWith("@cloudflare/codemode") || /runtime\/workers\/sandbox$|^\.\.\/workers\/sandbox$/.test(specifier))
+        .map(({ specifier, line }) => `${file}:${line}: imports "${specifier}"`),
+    );
+    expect(direct).toEqual([]);
   });
 });
 
@@ -302,6 +357,9 @@ describe("the boundary scanner", () => {
     ["an adapter module", 'import { workersPorts } from "../runtime/workers/ports";'],
     ["the D1 store", 'import { openStore } from "../store/db";'],
     ["the MCP wiring", 'import { createServer } from "../mcp/server";'],
+    ["a Node builtin", 'import { DatabaseSync } from "node:sqlite";'],
+    ["a bare Node builtin", 'import { readFileSync } from "fs";'],
+    ["the Node host", 'import { startNodeHost } from "../runtime/node/host";'],
     ["a non-literal dynamic import", "const name = 'x'; export const m = import(name);"],
     ["a keyed access on globalThis", 'export const l = (globalThis as unknown as Record<string, unknown>)["LOADER"];'],
     ["a computed key on self", 'const k = "LOADER"; export const l = (self as any)[k];'],

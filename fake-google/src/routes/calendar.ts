@@ -270,6 +270,131 @@ async function deleteEvent(ctx: FakeContext): Promise<Response> {
   return deleted ? new Response(null, { status: 204 }) : notFound();
 }
 
+async function jsonBody(ctx: FakeContext): Promise<Record<string, unknown> | Response> {
+  let body: unknown;
+  try {
+    body = JSON.parse((await ctx.req.text()) || "{}");
+  } catch {
+    return badRequest("Invalid JSON payload received.");
+  }
+  return typeof body === "object" && body !== null && !Array.isArray(body) ? (body as Record<string, unknown>) : badRequest("Invalid JSON payload received.");
+}
+
+const eventIdOf = (ctx: FakeContext) => decodeURIComponent(ctx.match[2] ?? "");
+
+async function getEvent(ctx: FakeContext): Promise<Response> {
+  if (!ownsCalendar(ctx, calendarIdOf(ctx))) return notFound();
+  const event = await ctx.store.get<EventRecord>(eventKey(ctx.email, eventIdOf(ctx)));
+  return event ? Response.json(event) : notFound();
+}
+
+/** Fields a patch may replace; the rest of the event stays as it was. */
+const PATCHABLE = ["summary", "description", "location", "attendees", "transparency"] as const;
+
+async function patchEvent(ctx: FakeContext): Promise<Response> {
+  if (!ownsCalendar(ctx, calendarIdOf(ctx))) return notFound();
+  const key = eventKey(ctx.email, eventIdOf(ctx));
+  const event = await ctx.store.get<EventRecord>(key);
+  if (!event) return notFound();
+  const body = await jsonBody(ctx);
+  if (body instanceof Response) return body;
+  const next: EventRecord = { ...event };
+  for (const k of PATCHABLE) if (body[k] !== undefined) next[k] = body[k] as JsonValue;
+  next.updated = new Date(ctx.now()).toISOString();
+  await ctx.store.put(key, next);
+  return Response.json(next);
+}
+
+async function moveEvent(ctx: FakeContext): Promise<Response> {
+  if (!ownsCalendar(ctx, calendarIdOf(ctx))) return notFound();
+  const destination = ctx.url.searchParams.get("destination");
+  if (destination === null) return badRequest("Missing destination calendar.", "required");
+  if (!ownsCalendar(ctx, destination)) return notFound();
+  const event = await ctx.store.get<EventRecord>(eventKey(ctx.email, eventIdOf(ctx)));
+  return event ? Response.json(event) : notFound();
+}
+
+/** Busy spans of the account's one calendar inside the window: confirmed, opaque events, merged where they touch. */
+async function busyWithin(ctx: FakeContext, timeMin: number, timeMax: number): Promise<Array<{ start: string; end: string }>> {
+  const cal = await calendarOf(ctx);
+  const spans: Array<[number, number]> = [];
+  for (const [, event] of await ctx.store.list<EventRecord>(`calendar:event:${ctx.email}:`)) {
+    if (event.status === "cancelled" || event.transparency === "transparent") continue;
+    const start = instant(event.start, cal.timeZone);
+    const end = instant(event.end, cal.timeZone);
+    if (start === undefined || end === undefined || end <= timeMin || start >= timeMax) continue;
+    spans.push([Math.max(start, timeMin), Math.min(end, timeMax)]);
+  }
+  spans.sort((a, b) => a[0] - b[0]);
+  const merged: Array<[number, number]> = [];
+  for (const span of spans) {
+    const last = merged[merged.length - 1];
+    if (last !== undefined && span[0] <= last[1]) last[1] = Math.max(last[1], span[1]);
+    else merged.push([...span]);
+  }
+  return merged.map(([a, b]) => ({ start: new Date(a).toISOString(), end: new Date(b).toISOString() }));
+}
+
+async function freeBusy(ctx: FakeContext): Promise<Response> {
+  const body = await jsonBody(ctx);
+  if (body instanceof Response) return body;
+  const bound = (v: unknown) => (typeof v === "string" && RFC3339.test(v) && !Number.isNaN(Date.parse(v)) ? Date.parse(v) : undefined);
+  const timeMin = bound(body.timeMin);
+  const timeMax = bound(body.timeMax);
+  if (timeMin === undefined || timeMax === undefined) return badRequest("Missing or invalid timeMin or timeMax.", "required");
+  if (timeMax <= timeMin) return badRequest("The specified time range is empty.", "timeRangeEmpty");
+  const items = body.items;
+  if (!Array.isArray(items) || items.length === 0 || !items.every((i) => typeof (i as { id?: unknown } | null)?.id === "string")) {
+    return badRequest("Missing or invalid items.", "required");
+  }
+  const calendars: Record<string, JsonValue> = {};
+  for (const item of items as Array<{ id: string }>) {
+    calendars[item.id] = ownsCalendar(ctx, item.id)
+      ? { busy: await busyWithin(ctx, timeMin, timeMax) }
+      : { busy: [], errors: [{ domain: "global", reason: "notFound" }] };
+  }
+  return Response.json({ kind: "calendar#freeBusy", timeMin: new Date(timeMin).toISOString(), timeMax: new Date(timeMax).toISOString(), calendars });
+}
+
+/** Stored at `calendar:acl:<email>:<ruleId>`; the rule id is `<type>:<value>`, or `default` for everyone, as in Google. */
+const aclKey = (email: string, ruleId: string) => fakeKey("calendar", "acl", email, ruleId);
+const ACL_ROLES = ["none", "freeBusyReader", "reader", "writer", "owner"];
+const ACL_SCOPE_TYPES = ["default", "user", "group", "domain"];
+
+const aclRuleOf = (email: string, role: string): Record<string, JsonValue> => ({
+  kind: "calendar#aclRule",
+  etag: `"fake-${email}"`,
+  id: `user:${email}`,
+  scope: { type: "user", value: email },
+  role,
+});
+
+async function insertAcl(ctx: FakeContext): Promise<Response> {
+  if (!ownsCalendar(ctx, calendarIdOf(ctx))) return notFound();
+  const body = await jsonBody(ctx);
+  if (body instanceof Response) return body;
+  const scope = body.scope as { type?: unknown; value?: unknown } | undefined;
+  if (typeof body.role !== "string" || !ACL_ROLES.includes(body.role)) return badRequest("Invalid value for role.", "invalid");
+  if (typeof scope?.type !== "string" || !ACL_SCOPE_TYPES.includes(scope.type)) return badRequest("Invalid value for scope type.", "invalid");
+  if (scope.type !== "default" && (typeof scope.value !== "string" || scope.value === "")) return badRequest("Missing scope value.", "required");
+  const id = scope.type === "default" ? "default" : `${scope.type}:${String(scope.value)}`;
+  const rule: Record<string, JsonValue> = {
+    kind: "calendar#aclRule",
+    etag: `"fake-${id}"`,
+    id,
+    scope: scope.type === "default" ? { type: "default" } : { type: scope.type, value: String(scope.value) },
+    role: body.role,
+  };
+  await ctx.store.put(aclKey(ctx.email, id), rule);
+  return Response.json(rule);
+}
+
+async function deleteAcl(ctx: FakeContext): Promise<Response> {
+  if (!ownsCalendar(ctx, calendarIdOf(ctx))) return notFound();
+  const deleted = await ctx.store.delete(aclKey(ctx.email, decodeURIComponent(ctx.match[2] ?? "")));
+  return deleted ? new Response(null, { status: 204 }) : notFound();
+}
+
 // ---------- routes ----------
 
 const G = "https://www.googleapis.com/auth/";
@@ -293,6 +418,9 @@ const SCOPES = {
     `${G}calendar.readonly`,
   ],
   eventsWrite: [`${G}calendar`, `${G}calendar.app.created`, `${G}calendar.events`, `${G}calendar.events.owned`],
+  eventsMove: [`${G}calendar`, `${G}calendar.events`, `${G}calendar.events.owned`],
+  freeBusy: [`${G}calendar`, `${G}calendar.events.freebusy`, `${G}calendar.freebusy`, `${G}calendar.readonly`],
+  acl: [`${G}calendar`, `${G}calendar.acls`],
 };
 
 export const routes: FakeRoute[] = [
@@ -301,7 +429,13 @@ export const routes: FakeRoute[] = [
   { method: "GET", pattern: new RegExp(`${CAL}/calendars/${CAL_ID}$`), scopes: SCOPES.calendarsGet, handle: getCalendar },
   { method: "GET", pattern: new RegExp(`${CAL}/calendars/${CAL_ID}/events$`), scopes: SCOPES.eventsList, handle: listEvents },
   { method: "POST", pattern: new RegExp(`${CAL}/calendars/${CAL_ID}/events$`), scopes: SCOPES.eventsWrite, handle: insertEvent },
+  { method: "GET", pattern: new RegExp(`${CAL}/calendars/${CAL_ID}/events/([^/]+)$`), scopes: SCOPES.eventsList, handle: getEvent },
+  { method: "PATCH", pattern: new RegExp(`${CAL}/calendars/${CAL_ID}/events/([^/]+)$`), scopes: SCOPES.eventsWrite, handle: patchEvent },
+  { method: "POST", pattern: new RegExp(`${CAL}/calendars/${CAL_ID}/events/([^/]+)/move$`), scopes: SCOPES.eventsMove, handle: moveEvent },
   { method: "DELETE", pattern: new RegExp(`${CAL}/calendars/${CAL_ID}/events/([^/]+)$`), scopes: SCOPES.eventsWrite, handle: deleteEvent },
+  { method: "POST", pattern: new RegExp(`${CAL}/freeBusy$`), scopes: SCOPES.freeBusy, handle: freeBusy },
+  { method: "POST", pattern: new RegExp(`${CAL}/calendars/${CAL_ID}/acl$`), scopes: SCOPES.acl, handle: insertAcl },
+  { method: "DELETE", pattern: new RegExp(`${CAL}/calendars/${CAL_ID}/acl/([^/]+)$`), scopes: SCOPES.acl, handle: deleteAcl },
 ];
 
 // ---------- seed preset ----------
@@ -340,6 +474,7 @@ const at = (dateTime: string): EventTime => ({ dateTime, timeZone: SEED_TIME_ZON
 export const presets: SeedPresets = {
   default: [
     { key: "calendar:calendar:{email}:primary", value: { id: "{email}", summary: "{email}", timeZone: SEED_TIME_ZONE } },
+    { key: "calendar:acl:{email}:user:{email}", value: aclRuleOf("{email}", "owner") },
     seedEvent("seed-evt-yesterday-late", "Yesterday review", at("2026-11-08T22:00:00+07:00"), at("2026-11-08T23:30:00+07:00")),
     seedEvent("seed-evt-overnight", "Overnight maintenance", at("2026-11-08T23:00:00+07:00"), at("2026-11-09T01:30:00+07:00")),
     seedEvent("seed-evt-today-allday", "Focus day", { date: "2026-11-09" }, { date: "2026-11-10" }),

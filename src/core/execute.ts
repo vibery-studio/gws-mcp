@@ -1,7 +1,19 @@
 import { FAKE_CLIENT_SECRET, type Config } from "../config";
-import { SECRET_NAMES, type AuthProps, type ExecuteOutput, type PlanStep } from "../contracts";
+import { SECRET_NAMES, type ApprovalOffer, type AuditRow, type AuthProps, type ExecuteOutput, type PlanStep, type UserLink } from "../contracts";
 import { GWS_ERROR_CODES, GwsError, isGwsError, toWire, type GwsErrorCode, type WireError } from "../errors";
-import { createCallSession, type CallSession } from "./dispatch";
+import { createCallSession, type CallSession, type SessionApproval, type SessionPortsWithAccess } from "./dispatch";
+import {
+  approvalMintedRow,
+  approvalOffer,
+  approvalPlanHash,
+  approvalRequired,
+  approvalUsedRow,
+  approvedSteps,
+  mintApprovalLink,
+  type GatedStep,
+  type HumanApprovalPort,
+  type NoLinkReason,
+} from "./human-approval";
 import { capBytes, checkRate, jsonBytes } from "./limits";
 import type { CorePorts, SandboxCall, SandboxPort, SandboxResult, SecretSource } from "./ports";
 import { SDK_PRELUDE } from "./prelude";
@@ -160,14 +172,20 @@ export interface ExecuteRequest {
   code: string;
   apply: boolean;
   auth: AuthProps;
-  /** The runtime's ports (sandbox, stores, secrets, HTTP). */
-  ports: CorePorts;
+  /**
+   * The runtime's ports (sandbox, stores, secrets, HTTP), plus the web runtime's own (access list, setting link page,
+   * approval page) when it has them.
+   */
+  ports: CorePorts & Pick<SessionPortsWithAccess, "access" | "settingLinks" | "humanApprovals">;
   config: Config;
   /** Functions callable in this execute; the SDK registry when omitted. */
   registry?: Registry;
   /** Clock for timestamps and rate windows; `Date.now` when omitted. */
   now?: () => number;
 }
+
+/** An approval link, or why none was handed out (`audit-lost`: it was made but its audit row could not be written). */
+type UserLinkOr = UserLink | NoLinkReason | "audit-lost";
 
 /** `ExecuteOutput` plus the count of over-budget calls that were refused without an audit row. */
 export interface ExecuteReport extends ExecuteOutput {
@@ -277,18 +295,35 @@ function failure(e: unknown): WireError {
   }
 }
 
+const AUDIT_LOST: WireError = { code: "GWS_INTERNAL", message: "the audit log of this execute could not be written" };
+
+/** The audit-row prefix of a planning pass's calls: they belong to the apply execute but are not its own calls. */
+export const PLANNING_PASS_PREFIX = "plan:";
+
+/** What an `apply: true` run with steps that need approval may do: run with these approved steps, or stop here. */
+type ApplyGate = { approved: Map<string, number>; used?: AuditRow } | { refusal: ExecuteReport };
+
 /**
  * Runs one `execute`: a rate-limit count for the execute itself, a fresh call session (one executeId), the
  * snippet in the sandbox, then the output with logs, result and error redacted and capped at
  * `RESULT_MAX_BYTES`. The session is closed as soon as the sandbox run ends (in a `finally`, so on every
  * path), before any snippet output is processed: calls the snippet left running, such as an un-awaited
  * applied write, finish and get their audit rows even if processing that output fails.
+ *
+ * With GWS_HUMAN_APPROVAL on (see human-approval.ts): a dry run whose plan has steps that need approval returns an
+ * approval link in `approval`; an `apply: true` run first repeats the dry run (the planning pass, audited under
+ * `plan:<executeId>`) and runs only with an unused approval of exactly that plan, which it uses up; otherwise it stops
+ * with GWS_APPROVAL_REQUIRED before any write.
  */
 export async function runExecute(req: ExecuteRequest): Promise<ExecuteReport> {
   const { code, apply, auth, ports, config } = req;
   const now = req.now ?? Date.now;
   const executeId = crypto.randomUUID();
-  const report = (session: CallSession | undefined, fields: { result?: unknown; error?: WireError; logs: string[] }): ExecuteReport => {
+  const humanApproval: SessionApproval | undefined = config.GWS_HUMAN_APPROVAL.length > 0 ? { reasons: new Set(config.GWS_HUMAN_APPROVAL) } : undefined;
+  const report = (
+    session: CallSession | undefined,
+    fields: { result?: unknown; error?: WireError; logs: string[]; approval?: ApprovalOffer | undefined },
+  ): ExecuteReport => {
     const out: ExecuteReport = {
       ok: fields.error === undefined,
       executeId,
@@ -301,29 +336,105 @@ export async function runExecute(req: ExecuteRequest): Promise<ExecuteReport> {
     };
     if (fields.result !== undefined) out.result = fields.result;
     if (fields.error !== undefined) out.error = fields.error;
+    if (fields.approval !== undefined) out.approval = fields.approval;
     return out;
   };
+  const newSession = (id: string, applyMode: boolean) =>
+    createCallSession({
+      ports,
+      auth,
+      apply: applyMode,
+      executeId: id,
+      config,
+      now,
+      ...(req.registry ? { registry: req.registry } : {}),
+      ...(humanApproval ? { humanApproval } : {}),
+    });
+  const sandboxRun = (target: CallSession) =>
+    runSandbox({ sandbox: ports.sandbox, timeoutMs: config.EXECUTE_TIMEOUT_MS, cpuMs: EXECUTE_CPU_MS, code, call: (n, i) => target.dispatch(n, i) });
+
+  /**
+   * A one-time approval link for these steps, with its audit row flushed through `audit`; or why there is none. A link
+   * that cannot be made, or whose audit row cannot be written, is not handed out.
+   */
+  async function offerLink(audit: CallSession, steps: readonly GatedStep[], approvals: HumanApprovalPort | undefined): Promise<UserLinkOr> {
+    if (approvals === undefined) return "no-page";
+    if (steps.some((s) => s.incomplete)) return "dependent";
+    let minted: Awaited<ReturnType<typeof mintApprovalLink>>;
+    try {
+      const planHash = await approvalPlanHash({ userId: auth.userId, clientId: auth.clientId, code, digests: steps.map((s) => s.digest) });
+      // The plan's other writes go along as context for the person; they need no approval.
+      const context = audit.plan.filter((s) => s.effect === "write" && s.needsApproval !== true);
+      minted = await mintApprovalLink({ links: ports.links, baseUrl: config.PUBLIC_BASE_URL, auth, executeId, now: now() }, { planHash, steps, context });
+    } catch {
+      return "link-failed";
+    }
+    audit.addAudit(approvalMintedRow(minted.record, now()));
+    try {
+      await audit.flush();
+    } catch {
+      return "audit-lost";
+    }
+    return minted.link;
+  }
+
+  /**
+   * Before an `apply: true` run: the planning pass (the same code as a dry run, so no write) finds the steps that need
+   * approval and their plan hash; then one unused approval of that hash, user and client is used up. Nothing is
+   * written by this; without such an approval the execute stops with GWS_APPROVAL_REQUIRED and a fresh link.
+   */
+  async function gateApply(approvals: HumanApprovalPort | undefined): Promise<ApplyGate> {
+    if (approvals === undefined) return { approved: new Map() };
+    const planning = newSession(`${PLANNING_PASS_PREFIX}${executeId}`, false);
+    let stopped: WireError | undefined;
+    try {
+      await sandboxRun(planning);
+    } catch (e) {
+      // The runtime refused the run: the applied run would be refused the same way.
+      stopped = failure(e);
+    } finally {
+      try {
+        await planning.close();
+      } catch {
+        stopped = AUDIT_LOST;
+      }
+    }
+    if (stopped !== undefined) return { refusal: report(planning, { error: stopped, logs: [] }) };
+    const steps = planning.gatedSteps;
+    if (steps.length === 0) return { approved: new Map() };
+    if (!steps.some((s) => s.incomplete)) {
+      const planHash = await approvalPlanHash({ userId: auth.userId, clientId: auth.clientId, code, digests: steps.map((s) => s.digest) });
+      const approvalId = await approvals.claim({ planHash, userId: auth.userId, clientId: auth.clientId, now: now() });
+      if (approvalId !== null) return { approved: approvedSteps(steps), used: approvalUsedRow(executeId, auth, approvalId, now()) };
+    }
+    const made = await offerLink(planning, steps, approvals);
+    if (made === "audit-lost") return { refusal: report(planning, { error: AUDIT_LOST, logs: [] }) };
+    return { refusal: report(planning, { error: failure(approvalRequired(steps, made)), logs: [], approval: approvalOffer(steps, made) }) };
+  }
 
   let session: CallSession;
   try {
-    session = createCallSession({ ports, auth, apply, executeId, config, now, ...(req.registry ? { registry: req.registry } : {}) });
+    session = newSession(executeId, apply);
   } catch (e) {
     return report(undefined, { error: failure(e), logs: [] });
   }
 
   let run: SandboxRun | undefined;
   let error: WireError | undefined;
+  let refusal: ExecuteReport | undefined;
   let audited = true;
   try {
     // Each execute counts once, so a snippet that makes no SDK call is rate-limited too.
     await checkRate(ports.rate, auth, now(), config);
-    run = await runSandbox({
-      sandbox: ports.sandbox,
-      timeoutMs: config.EXECUTE_TIMEOUT_MS,
-      cpuMs: EXECUTE_CPU_MS,
-      code,
-      call: (n, i) => session.dispatch(n, i),
-    });
+    if (apply && humanApproval !== undefined) {
+      const gate = await gateApply(ports.humanApprovals);
+      if ("refusal" in gate) refusal = gate.refusal;
+      else {
+        humanApproval.approved = gate.approved;
+        if (gate.used !== undefined) session.addAudit(gate.used);
+      }
+    }
+    if (refusal === undefined) run = await sandboxRun(session);
   } catch (e) {
     error = failure(e);
   } finally {
@@ -333,8 +444,19 @@ export async function runExecute(req: ExecuteRequest): Promise<ExecuteReport> {
       audited = false;
     }
   }
+  if (refusal !== undefined) return audited ? refusal : { ...refusal, error: AUDIT_LOST, ok: false };
 
-  const secrets = knownSecrets(ports.secrets);
+  // A dry run whose plan has steps that need approval offers the person's approval link.
+  let approval: ApprovalOffer | undefined;
+  const gated = !apply && audited ? session.gatedSteps : [];
+  if (gated.length > 0) {
+    const made = await offerLink(session, gated, ports.humanApprovals);
+    if (made === "audit-lost") audited = false;
+    else approval = approvalOffer(gated, made);
+  }
+
+  // The session is closed: every value it handled is known by now.
+  const secrets = [...knownSecrets(ports.secrets), ...session.sensitive];
   let result: unknown;
   let logs: string[] = [];
   if (run !== undefined) {
@@ -348,6 +470,6 @@ export async function runExecute(req: ExecuteRequest): Promise<ExecuteReport> {
     }
   }
   // The calls ran but their audit rows were not written: that outranks any snippet outcome.
-  if (!audited) error = { code: "GWS_INTERNAL", message: "the audit log of this execute could not be written" };
-  return report(session, { result, error, logs });
+  if (!audited) error = AUDIT_LOST;
+  return report(session, { result, error, logs, approval });
 }

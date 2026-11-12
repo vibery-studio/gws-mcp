@@ -1,0 +1,49 @@
+{
+  "id": "tagmanager-user-permissions-list",
+  "source": "synthesized",
+  "provenance": "Discovery tagmanager v2 rev 20261111 ListUserPermissionsResponse; served by the fake seeded with preset \"default\" for alice@fake.test",
+  "request": {
+    "method": "GET",
+    "path": "/tagmanager.googleapis.com/tagmanager/v2/accounts/6001001001/user_permissions"
+  },
+  "response": {
+    "status": 200,
+    "headers": {},
+    "body": {
+      "userPermission": [
+        {
+          "path": "accounts/6001001001/user_permissions/1000000001",
+          "accountId": "6001001001",
+          "emailAddress": "alice@fake.test",
+          "accountAccess": {
+            "permission": "admin"
+          },
+          "containerAccess": [
+            {
+              "containerId": "9001001",
+              "permission": "publish"
+            },
+            {
+              "containerId": "9001002",
+              "permission": "publish"
+            }
+          ]
+        },
+        {
+          "path": "accounts/6001001001/user_permissions/1000000002",
+          "accountId": "6001001001",
+          "emailAddress": "dana@fake.test",
+          "accountAccess": {
+            "permission": "user"
+          },
+          "containerAccess": [
+            {
+              "containerId": "9001001",
+              "permission": "edit"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

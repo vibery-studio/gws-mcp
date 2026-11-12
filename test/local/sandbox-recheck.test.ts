@@ -199,14 +199,16 @@ describe("process-wide sandbox concurrency", () => {
       await new Promise((r) => setTimeout(r, 800));
       return OK(null);
     };
-    const t0 = Date.now();
+    const settled: number[] = [];
     const [first, second] = await Promise.all([
-      run("async () => { await sdk.a.b({}); return 1; }", { call: slow, timeoutMs: 5000 }),
-      run("async () => { await sdk.a.b({}); return 2; }", { call: slow, timeoutMs: 300 }),
+      run("async () => { await sdk.a.b({}); return 1; }", { call: slow, timeoutMs: 5000 }).then((r) => (settled.push(1), r)),
+      run("async () => { await sdk.a.b({}); return 2; }", { call: slow, timeoutMs: 300 }).then((r) => (settled.push(2), r)),
     ]);
     expect(first.status).toBe("returned");
     expect(second).toEqual({ status: "timed-out", limit: "wall", logs: [] });
-    expect(Date.now() - t0).toBeLessThan(1500);
+    // The first run holds the only slot for at least its 800 ms call, so the second ending first proves it left the
+    // queue at its own deadline instead of waiting for the slot. Ordering, unlike elapsed time, does not depend on load.
+    expect(settled).toEqual([2, 1]);
     // Long after the slot freed up, the timed-out run has still not started: it left the queue at its deadline.
     await new Promise((r) => setTimeout(r, 1500));
     expect(started).toBe(1);

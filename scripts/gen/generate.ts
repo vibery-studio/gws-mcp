@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
-import { GOOGLE_SERVICES, type GoogleService } from "../../src/config";
+import type { GoogleService } from "../../src/config";
 import { renderService } from "./render";
-import { emitService } from "./service";
+import { API_NAMES, GENERATED_APIS, emitService, type ApiName, type ApiSpec, type MethodAllowlist } from "./service";
 import type { DiscoveryDoc, Unsupported } from "./types";
 import { byteOrder, lit } from "./zod-emit";
 
@@ -11,7 +11,8 @@ export interface ServiceInput {
   revision: string;
 }
 
-export type GenerateInput = Partial<Record<GoogleService, ServiceInput>>;
+/** One pinned document per api name (see `GENERATED_APIS`). */
+export type GenerateInput = Partial<Record<ApiName, ServiceInput>>;
 
 export interface ServiceTotals {
   supported: number;
@@ -25,7 +26,8 @@ export interface GenerateResult {
   hash: string;
   unsupported: Array<Unsupported & { service: GoogleService }>;
   droppedUploads: string[];
-  totals: Partial<Record<GoogleService, ServiceTotals>>;
+  /** Per api, in output order. */
+  totals: Partial<Record<ApiName, ServiceTotals>>;
   supported: number;
   total: number;
 }
@@ -43,6 +45,15 @@ export function hashFiles(files: ReadonlyMap<string, string>): string {
   return `sha256:${h.digest("hex")}`;
 }
 
+function describeAllowlist(allow: MethodAllowlist): string {
+  const parts = [
+    ...(allow.idPrefixes ?? []).map((p) => `\`${p}*\``),
+    ...(allow.ids ?? []).map((p) => `\`${p}\``),
+    ...(allow.idSuffixes ?? []).map((p) => `\`*${p}\``),
+  ];
+  return parts.join(", ");
+}
+
 function renderReport(
   unsupported: ReadonlyArray<Unsupported>,
   totals: GenerateResult["totals"],
@@ -50,15 +61,27 @@ function renderReport(
   total: number,
 ): string {
   const rows = unsupported.map((u) => `| ${u.method} | ${u.reason.replace(/\|/g, "\\|")} |`);
-  const perService = GOOGLE_SERVICES.flatMap((s) => {
+  const perService = API_NAMES.flatMap((s) => {
     const t = totals[s];
     return t === undefined ? [] : [`- ${s}: ${t.supported} supported, ${t.unsupported} unsupported, ${t.total} total`];
+  });
+  const allowlists = API_NAMES.flatMap((s) => {
+    const spec: ApiSpec = GENERATED_APIS[s];
+    return totals[s] !== undefined && spec.allow !== undefined ? [`- ${s}: ${describeAllowlist(spec.allow)}`] : [];
   });
   return [
     "# Unsupported methods",
     "",
     "Discovery methods that are not generated, with the reason. Produced by scripts/gen-sdk.ts. Do not edit.",
     "",
+    ...(allowlists.length === 0
+      ? []
+      : [
+          "Only these methods are considered for the apis below. Every other method of those documents is omitted by the allowlist and counted in no total.",
+          "",
+          ...allowlists,
+          "",
+        ]),
     "| method | reason |",
     "|---|---|",
     ...rows,
@@ -77,7 +100,7 @@ export function generate(input: GenerateInput): GenerateResult {
   const unsupported: GenerateResult["unsupported"] = [];
   const droppedUploads: string[] = [];
   const totals: GenerateResult["totals"] = {};
-  const services = GOOGLE_SERVICES.filter((s) => input[s] !== undefined);
+  const services = API_NAMES.filter((s) => input[s] !== undefined);
   const versions: Record<string, string> = {};
   let supported = 0;
   let total = 0;
@@ -85,9 +108,10 @@ export function generate(input: GenerateInput): GenerateResult {
   const rendered = new Map<string, string>();
   for (const service of services) {
     const { doc, version, revision } = input[service]!;
-    const emitted = emitService(service, { ...doc, version, revision });
+    const spec: ApiSpec = GENERATED_APIS[service];
+    const emitted = emitService(spec.service, { ...doc, version, revision }, { api: service, ...(spec.allow !== undefined ? { allow: spec.allow } : {}) });
     rendered.set(`${service}.ts`, renderService(emitted));
-    for (const u of emitted.unsupported) unsupported.push({ ...u, service });
+    for (const u of emitted.unsupported) unsupported.push({ ...u, service: spec.service });
     droppedUploads.push(...emitted.droppedUploads);
     totals[service] = {
       supported: emitted.methods.length,

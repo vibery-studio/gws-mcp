@@ -76,16 +76,35 @@ export default async function done07(ctx: E2eContext, r: Recorder): Promise<Chec
     `dry-run with a 6 MB input -> ${codeOf(oversized.out)} (${reason ?? "-"})`,
   );
 
-  const timer = await s.execute(`async () => {
+  // A snippet that tries to outlast the host's deadline, then make a late call. Where the sandbox has timers
+  // (the Worker's) it replaces setTimeout and waits past the deadline; where it has none (the QuickJS sandbox of the
+  // Node host) it stalls by other means: a promise that never settles, and a loop that never yields.
+  const hasTimers = (await s.execute(`async () => typeof setTimeout === "function"`)).out.result === true;
+  const stalls: Array<[string, string]> = hasTimers
+    ? [
+        [
+          "setTimeout replaced, then a late call",
+          `async () => {
     const realTimeout = setTimeout;
     globalThis.setTimeout = () => 0;
     await new Promise((resolve) => realTimeout(resolve, ${DEFAULT_TIMEOUT_MS + 5000}));
     return sdk.gmail.users.labels.list({ userId: "me" });
-  }`);
-  r.check(
-    codeOf(timer.out) === "GWS_EXECUTION_TIMEOUT" && timer.out.calls.length === 0 && timer.ms < DEFAULT_TIMEOUT_MS + 5000,
-    `setTimeout replaced, then a late call -> ${codeOf(timer.out)} after ${timer.ms} ms, calls=${timer.out.calls.length}`,
-  );
+  }`,
+        ],
+      ]
+    : [
+        ["a promise that never settles, then a late call", `async () => { await new Promise(() => {}); return sdk.gmail.users.labels.list({ userId: "me" }); }`],
+        ["a loop that never yields", `async () => { while (true) {} }`],
+      ];
+  const timers = [];
+  for (const [label, code] of stalls) {
+    const timer = await s.execute(code);
+    timers.push(timer);
+    r.check(
+      codeOf(timer.out) === "GWS_EXECUTION_TIMEOUT" && timer.out.calls.length === 0 && timer.ms < DEFAULT_TIMEOUT_MS + 5000,
+      `${label} -> ${codeOf(timer.out)} after ${timer.ms} ms, calls=${timer.out.calls.length}`,
+    );
+  }
 
   const abuse = await s.execute(
     `async () => {
@@ -105,7 +124,7 @@ export default async function done07(ctx: E2eContext, r: Recorder): Promise<Chec
     rows.length === 1 && rows[0]?.fn === "drive.files.create" && rows[0].applied === 1 && rows[0].status === "ok",
     `audit row of the applied write: ${JSON.stringify(rows)}`,
   );
-  for (const out of [slow, planned, oversized, timer, abuse]) {
+  for (const out of [slow, planned, oversized, ...timers, abuse]) {
     if (!clean(out.text)) r.fail("an abuse probe output holds a secret or token shape");
   }
   return r.done();

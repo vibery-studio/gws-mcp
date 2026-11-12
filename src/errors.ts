@@ -9,7 +9,19 @@ export const GWS_ERROR_CODES = [
   "GWS_NO_DEFAULT_ACCOUNT",
   "GWS_RECONNECT_REQUIRED",
   "GWS_ACCOUNT_TAKEN",
+  // Only an admin of this gws-mcp's access list may call sdk.access.* (not a Google Workspace admin).
+  "GWS_ACCESS_ADMIN_REQUIRED",
+  // Google refused a Groups call because the account is not a Google Workspace admin (or is a personal account).
+  "GWS_ADMIN_REQUIRED",
+  // A Google Ads call needs the user's developer token, and none is saved. No Google request was made.
+  "GWS_ADS_DEVELOPER_TOKEN_MISSING",
+  // A saved setting can no longer be decrypted (the server's encryption key changed, say); saving it again fixes it.
+  "GWS_SETTING_UNREADABLE",
+  // This runtime cannot do it at all (the local stdio server has no web page for a one-time link).
+  "GWS_UNSUPPORTED_RUNTIME",
   "GWS_CONFIRMATION_REQUIRED",
+  // A step of the plan needs a person's approval on a gws-mcp page first (GWS_HUMAN_APPROVAL). No Google write was made.
+  "GWS_APPROVAL_REQUIRED",
   "GWS_RATE_LIMITED",
   "GWS_CALL_BUDGET_EXCEEDED",
   "GWS_RESPONSE_TOO_LARGE",

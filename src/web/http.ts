@@ -1,5 +1,6 @@
 import type { MiddlewareHandler } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
+import { userRoleOrNull } from "../auth/access";
 import { csrfMatches, getSession, type AppContext, type Session } from "../auth/session";
 import { loadConfig } from "../config";
 import { COPY, plainError } from "./copy";
@@ -120,8 +121,9 @@ export interface PageContext {
 
 /** Loads the read model and takes the flash for the session's user. Call it once per page view. */
 export async function pageContext(c: AppContext, session: Session): Promise<PageContext> {
-  const [model, flash] = await Promise.all([loadReadModel(c.env, session.userId), takeFlash(c, session.userId)]);
-  return { session, user: { email: model.signedInEmail, csrf: session.csrf }, model, flash };
+  const [model, flash, role] = await Promise.all([loadReadModel(c.env, session.userId), takeFlash(c, session.userId), userRoleOrNull(c.env, session.userId)]);
+  // Display only (the admin nav item): every access route checks the role again itself.
+  return { session, user: { email: model.signedInEmail, csrf: session.csrf, isAdmin: role === "admin" }, model, flash };
 }
 
 /**

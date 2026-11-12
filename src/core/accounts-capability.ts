@@ -4,6 +4,7 @@ import type { AccountList, AccountView, AccountsCapability, AuthProps, Capabilit
 import { GwsError, isGwsError } from "../errors";
 import type { GoogleOAuth } from "../google/oauth";
 import { isDestructive } from "./destructive";
+import { LINK_TTL_MS, isLinkToken, linkKey, newLinkToken } from "./links";
 import type { Account, AccountStatus, AccountStore, ApprovalPort, LinkStore } from "./ports";
 
 const MAX_REF = 320;
@@ -13,8 +14,7 @@ const MAX_ALIAS = 64;
 export const CONFIRM_GRANT_PATH = "/connections/confirm";
 /** Path that starts Google consent from a connect link. */
 export const CONNECT_START_PATH = "/connect/start";
-/** Life of a grant or connect link. */
-export const LINK_TTL_MS = 10 * 60_000;
+export { LINK_TTL_MS };
 
 /**
  * The one denial for every account a client may not use: not in its allowlist, another user's, made up, in
@@ -53,7 +53,6 @@ function refArg(ref: unknown, path: string): string | undefined {
 
 // ---- Single-use links -------------------------------------------------------------------------------
 
-const TOKEN_RE = /^[A-Za-z0-9_-]{43}$/;
 const HINT_RE = /^[^\s\p{Cc}]{1,320}$/u;
 
 const GrantRequest = z.strictObject({
@@ -74,20 +73,8 @@ export type GrantRequest = z.output<typeof GrantRequest>;
 export type ConnectRequest = z.output<typeof ConnectRequest>;
 type LinkRecord = GrantRequest | ConnectRequest;
 
-function b64url(bytes: Uint8Array): string {
-  let s = "";
-  for (const b of bytes) s += String.fromCharCode(b);
-  return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-/** Key of a link record: only a hash of the token is stored, so the stored records are not usable links. */
-async function linkKey(kind: LinkRecord["kind"], token: string): Promise<string> {
-  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token)));
-  return `req:${kind}:${[...digest].map((b) => b.toString(16).padStart(2, "0")).join("")}`;
-}
-
 async function putLink(kv: LinkStore, record: LinkRecord, baseUrl: string, path: string): Promise<UserLink> {
-  const token = b64url(crypto.getRandomValues(new Uint8Array(32)));
+  const token = newLinkToken();
   await kv.put(await linkKey(record.kind, token), JSON.stringify(record), { expirationTtl: Math.ceil(LINK_TTL_MS / 1000) });
   return { url: `${baseUrl}${path}?t=${token}`, expiresAt: record.exp };
 }
@@ -107,7 +94,7 @@ async function takeLink<T extends LinkRecord>(
   now: number,
   consume = true,
 ): Promise<T | null> {
-  if (typeof token !== "string" || !TOKEN_RE.test(token)) return null;
+  if (!isLinkToken(token)) return null;
   const key = await linkKey(kind, token);
   const raw = await kv.get(key);
   if (raw === null) return null;

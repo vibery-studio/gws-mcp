@@ -1,0 +1,19 @@
+{
+  "id": "ads-customers-list-accessible",
+  "source": "synthesized",
+  "provenance": "Discovery googleads v23 rev 20261106 ListAccessibleCustomersResponse; served by the fake seeded with preset \"default\" for alice@fake.test",
+  "request": {
+    "method": "GET",
+    "path": "/googleads.googleapis.com/v23/customers:listAccessibleCustomers"
+  },
+  "response": {
+    "status": 200,
+    "headers": {},
+    "body": {
+      "resourceNames": [
+        "customers/1234567890",
+        "customers/9876543210"
+      ]
+    }
+  }
+}

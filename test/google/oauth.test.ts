@@ -281,6 +281,14 @@ describe("userinfo and revoke against the fake", () => {
     expect((await rejection(googleOAuth(env, transport).userinfo("ya29.x"))).code).toBe("GWS_UPSTREAM_ERROR");
   });
 
+  it("refuses an email that is not plain ASCII before lower-casing could fold it into another address", async () => {
+    for (const email of ["\u212Aaren@x.test", "ann@x\u212A.test", "\u00e9mile@x.test", " ann@x.test"]) {
+      const { transport } = cannedTransport(200, JSON.stringify({ sub: "1", email, email_verified: true }));
+      const err = await rejection(googleOAuth(env, transport).userinfo("ya29.x"));
+      expect([email, err.code, err.message]).toEqual([email, "GWS_UPSTREAM_ERROR", "Google account email is not plain ASCII"]);
+    }
+  });
+
   it("revokes the grant, and revoking an already revoked token still succeeds", async () => {
     const email = await seeded("oauth-revoke");
     const oauth = googleOAuth(env, fakeTransport);

@@ -1,15 +1,62 @@
-import type { MethodMeta } from "../contracts";
+import type { MethodMeta, UserLink } from "../contracts";
+import { SETTINGS_WHERE, SET_LINK_HINT, settingLinkView } from "../core/settings-capability";
 import { GwsError, isGwsError } from "../errors";
 import { mapUpstreamError } from "./errors";
 import { mediaResult, wantsMediaDownload, type MediaResult } from "./media";
 import { buildRequest } from "./request";
 import type { Transport } from "./transport";
 
+/** The Google Ads API host. Only requests to it carry the Ads headers. */
+export const ADS_HOST = "googleads.googleapis.com";
+
+/** The user's Google Ads settings, read host-side from the settings store. Never logged, audited or planned. */
+export interface AdsHeaders {
+  developerToken: string;
+  loginCustomerId?: string;
+}
+
 export interface CallGoogleOptions {
   accessToken: string;
   transport: Transport;
   /** Most bytes read from any response body, success or error. Larger bodies are refused without being buffered. */
   maxResponseBytes: number;
+  /**
+   * Sent as the `developer-token` and `login-customer-id` headers on a request to ADS_HOST, and ignored for every
+   * other host. A request to ADS_HOST without them is refused before it is sent.
+   */
+  ads?: AdsHeaders;
+}
+
+/** Whether a method's requests go to the Google Ads API. */
+export function isAdsMethod(meta: Pick<MethodMeta, "rootUrl">): boolean {
+  try {
+    return new URL(meta.rootUrl).hostname === ADS_HOST;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * No developer token is saved for the user: refused before any Google request (token refresh included). Where gws-mcp
+ * serves its web page, the dispatcher passes a one-time link that sets it there (`details.setLink`).
+ */
+export function adsDeveloperTokenMissing(link?: UserLink): GwsError {
+  const base = `Google Ads needs a developer token, and none is saved for you. Add it ${SETTINGS_WHERE}, then try again`;
+  return new GwsError("GWS_ADS_DEVELOPER_TOKEN_MISSING", link === undefined ? base : `${base}. ${SET_LINK_HINT}`, {
+    details: link === undefined ? { setting: "ads.developer_token" } : { setting: "ads.developer_token", setLink: settingLinkView(link) },
+  });
+}
+
+/**
+ * The request headers to send: the built ones, plus the Ads headers when `url` is on ADS_HOST. Header values set
+ * here never come from snippet input: buildRequest sets no Ads header, and only this function adds them.
+ */
+function sendHeaders(url: string, built: Record<string, string>, ads: AdsHeaders | undefined): Record<string, string> {
+  if (new URL(url).hostname !== ADS_HOST) return built;
+  if (ads === undefined || ads.developerToken === "") throw adsDeveloperTokenMissing();
+  const headers: Record<string, string> = { ...built, "developer-token": ads.developerToken };
+  if (ads.loginCustomerId !== undefined && ads.loginCustomerId !== "") headers["login-customer-id"] = ads.loginCustomerId;
+  return headers;
 }
 
 function tooLarge(status: number, bytes: number, max: number): GwsError {
@@ -68,7 +115,7 @@ export async function callGoogle(meta: MethodMeta, input: unknown, opts: CallGoo
     throw new GwsError("GWS_INTERNAL", "callGoogle needs a positive integer maxResponseBytes");
   }
   const req = buildRequest(meta, input, { accessToken: opts.accessToken });
-  const init: RequestInit = { method: req.method, headers: req.headers, redirect: "manual" };
+  const init: RequestInit = { method: req.method, headers: sendHeaders(req.url, req.headers, opts.ads), redirect: "manual" };
   if (req.body !== undefined) init.body = req.body;
 
   let res: Response;
@@ -84,7 +131,7 @@ export async function callGoogle(meta: MethodMeta, input: unknown, opts: CallGoo
   }
 
   const bytes = await readBounded(res, opts.maxResponseBytes);
-  if (res.status < 200 || res.status > 299) throw mapUpstreamError(res.status, utf8.decode(bytes));
+  if (res.status < 200 || res.status > 299) throw mapUpstreamError(res.status, utf8.decode(bytes), meta.service);
   if (wantsMediaDownload(meta, input as Record<string, unknown>)) return mediaResult(bytes, res.headers.get("content-type"));
   const text = utf8.decode(bytes);
   if (text.trim() === "") return {};

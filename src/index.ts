@@ -1,9 +1,7 @@
 import { OAuthProvider } from "@cloudflare/workers-oauth-provider";
 import { env } from "cloudflare:workers";
-import { providerOptions } from "./auth/provider-options";
+import { oauthServerOptions } from "./auth/oauth-server";
 import { loadConfig, publicBaseUrl, type ConfigEnv } from "./config";
-import { mcpApiHandler } from "./mcp/server";
-import { webApp } from "./web/app";
 import { checkIpLimit } from "./web/ip-limit";
 
 // Startup check, so a bad var fails the deploy rather than every request: the whole config is validated once, with
@@ -26,12 +24,7 @@ function providerFor(requestEnv: RequestEnv): OAuthProvider<RequestEnv> {
   let provider = providers.get(base);
   if (!provider) {
     if (providers.size >= MAX_PROVIDERS) providers.clear();
-    provider = new OAuthProvider<RequestEnv>({
-      ...providerOptions(requestEnv),
-      apiRoute: "/mcp",
-      apiHandler: mcpApiHandler,
-      defaultHandler: webApp,
-    });
+    provider = new OAuthProvider<RequestEnv>(oauthServerOptions(requestEnv));
     providers.set(base, provider);
   }
   return provider;

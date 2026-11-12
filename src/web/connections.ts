@@ -4,6 +4,8 @@ import { DEFAULT_NEXT, startGoogleAuth } from "../auth/google-flow";
 import { getSession, type AppContext } from "../auth/session";
 import { GOOGLE_SERVICES, SERVICE_SCOPES, grantedServices, loadConfig, type GoogleService } from "../config";
 import { CONFIRM_GRANT_PATH, CONNECT_START_PATH, peekGrantRequest, revokeAndWipe, takeConnectRequest, takeGrantRequest } from "../core/accounts-capability";
+import { APPROVAL_LINK_PATH } from "../core/human-approval";
+import { SETTING_LINK_PATH } from "../core/setting-links";
 import { isGwsError } from "../errors";
 import { googleOAuth } from "../google/oauth";
 import { createTransport } from "../google/transport";
@@ -12,15 +14,18 @@ import { invalidate } from "../store/token-cache";
 import { renderConfirmGrantPage, type PageAccount, type PageClient } from "./connections-page";
 import { setFlash, type Flash } from "./flash";
 import { boundedId, field, fields, guardPost, messagePage, pageHeaders, posted, requireSignedIn, toLogin } from "./http";
-import { accountDetailsPage, saveAccountName } from "./pages/account-details";
+import { accessPage, addAccessRule, removeAccessRule } from "./pages/access";
+import { accountDetailsPage, removeAdsCode, saveAccountName, saveAdsDetails } from "./pages/account-details";
 import { accountDisconnectPage } from "./pages/account-disconnect";
 import { accountReconnectPage } from "./pages/account-reconnect";
 import { accountServicesPage, addAccountServices } from "./pages/account-services";
 import { accountsPage } from "./pages/accounts";
+import { approvalLinkPage, decideFromApprovalLink } from "./pages/approval-link";
 import { appDetailsPage, saveAppAccess } from "./pages/app-details";
 import { appRemovePage } from "./pages/app-remove";
 import { appsPage } from "./pages/apps";
 import { homePage } from "./pages/home";
+import { saveSettingFromLink, settingLinkPage } from "./pages/setting-link";
 
 /**
  * The signed-in human's pages and actions: Home, Google accounts, AI apps, the grant confirmation and the
@@ -37,9 +42,9 @@ export const connectionsRoutes = new Hono<{ Bindings: Env }>();
 type Ctx = AppContext;
 
 /** Every POST under these paths passes `guardPost` first. A new POST endpoint must live under one of them. */
-export const GUARDED_POST_PATHS = ["/connections/*", "/accounts/*", "/apps/*"] as const;
+export const GUARDED_POST_PATHS = ["/connections/*", "/accounts/*", "/apps/*", "/access/*", SETTING_LINK_PATH, APPROVAL_LINK_PATH] as const;
 /** Every GET under these paths needs a session (Home handles signed-out visitors itself). */
-const SIGNED_IN_PAGES = ["/accounts/*", "/apps/*"] as const;
+const SIGNED_IN_PAGES = ["/accounts/*", "/apps/*", "/access"] as const;
 
 function oauthClient(env: Env) {
   return googleOAuth(env, createTransport(env, loadConfig(env)));
@@ -120,6 +125,8 @@ connectionsRoutes.get("/accounts/:id/disconnect", accountDisconnectPage);
 connectionsRoutes.get("/apps", appsPage);
 connectionsRoutes.get("/apps/:id", appDetailsPage);
 connectionsRoutes.get("/apps/:id/remove", appRemovePage);
+// Admins only; the handlers check the role themselves.
+connectionsRoutes.get("/access", accessPage);
 
 /** The old management page: its accounts now live under /accounts and its apps under /apps. Nothing from the query is kept. */
 connectionsRoutes.get("/connections", (c) => c.redirect("/accounts", 303));
@@ -168,11 +175,22 @@ connectionsRoutes.get(CONNECT_START_PATH, async (c) => {
   });
 });
 
+// The one-time setting link: the page checks the session itself (signed out, it signs in and comes back).
+connectionsRoutes.get(SETTING_LINK_PATH, settingLinkPage);
+connectionsRoutes.post(SETTING_LINK_PATH, saveSettingFromLink);
+// The approval link of a plan whose steps need the person's approval: same session rules as the setting link.
+connectionsRoutes.get(APPROVAL_LINK_PATH, approvalLinkPage);
+connectionsRoutes.post(APPROVAL_LINK_PATH, decideFromApprovalLink);
+
 // ---- New page actions (handlers in their page modules) ----------------------------------------------
 
 connectionsRoutes.post("/accounts/:id/name", saveAccountName);
+connectionsRoutes.post("/accounts/:id/ads", saveAdsDetails);
+connectionsRoutes.post("/accounts/:id/ads/remove", removeAdsCode);
 connectionsRoutes.post("/accounts/:id/services", addAccountServices);
 connectionsRoutes.post("/apps/:id/access", saveAppAccess);
+connectionsRoutes.post("/access/add", addAccessRule);
+connectionsRoutes.post("/access/remove", removeAccessRule);
 
 // ---- Actions (field names are a contract: the E2E harness and older pages post them) ---------------
 

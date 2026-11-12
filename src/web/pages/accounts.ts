@@ -1,6 +1,6 @@
 import { html } from "hono/html";
 import type { AppContext } from "../../auth/session";
-import { GOOGLE_SERVICES, type GoogleService } from "../../config";
+import { DEFAULT_CONNECT_SERVICES, type GoogleService } from "../../config";
 import { COPY, GLOSSARY, SERVICE_NAMES } from "../copy";
 import type { Flash } from "../flash";
 import { genericFlash, pageContext, sendPage, signedIn } from "../http";
@@ -84,14 +84,15 @@ ${a.services.length > 0 ? serviceChips(a.services, GLOSSARY.googleServices.term)
 }
 
 /**
- * Connecting another Google account: the existing connect flow (POST /connections/connect) for every
- * Google service, as a first sign-in does. Google's own screens choose the account and review the access.
+ * Connecting another Google account: the existing connect flow (POST /connections/connect) for the
+ * one-click services, as a first sign-in does. Google's own screens choose the account and review the access.
+ * The opt-in services are added afterwards from the account's Google services page.
  */
 function addAccountForm(csrf: string, first: boolean): Html {
-  return html`<form method="post" action="/connections/connect" class="card card-wash"><input type="hidden" name="csrf" value="${csrf}">${GOOGLE_SERVICES.map(
+  return html`<form method="post" action="/connections/connect" class="card card-wash"><input type="hidden" name="csrf" value="${csrf}">${DEFAULT_CONNECT_SERVICES.map(
     (s) => html`<input type="hidden" name="service" value="${s}">`,
   )}
-<p>Google will ask you to choose an account and review access to ${serviceList(GOOGLE_SERVICES)}.</p>
+<p>Google will ask you to choose an account and review access to ${serviceList(DEFAULT_CONNECT_SERVICES)}.</p>
 <p class="hint">${COPY.trust.connectedVsAllowed}</p>
 <div class="actions"><button type="submit" class="btn btn-primary">${first ? COPY.actions.addGoogleAccount : ADD_ANOTHER}</button></div>
 </form>`;

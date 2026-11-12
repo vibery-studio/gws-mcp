@@ -1,14 +1,28 @@
 import { McpServer } from "@modelcontextprotocol/server";
 import { createMcpHandler, getMcpAuthContext } from "agents/mcp/server";
 import { z } from "zod";
+import pkg from "../../package.json";
+import { userRole, workersAccessPort } from "../auth/access";
 import { isGrantApproved } from "../auth/clients";
-import { loadConfig } from "../config";
+import { DEFAULT_HUMAN_APPROVAL, loadConfig, type ConfigEnv } from "../config";
 import type { AuthProps } from "../contracts";
-import { EXECUTE_DESCRIPTION, ExecuteInput, SEARCH_DESCRIPTION, SearchInput, executeTool, searchTool, toolError } from "../core/tools";
+import { EXECUTE_DESCRIPTION, ExecuteInput, SEARCH_DESCRIPTION, SearchInput, executeDescription, executeTool, searchTool, toolError } from "../core/tools";
 import { GwsError } from "../errors";
-import { workersPorts } from "../runtime/workers/ports";
+import { workersHumanApprovalPort, workersPorts, workersSettingLinkPort } from "../runtime/workers/ports";
 
 export { EXECUTE_DESCRIPTION, SEARCH_DESCRIPTION };
+
+/**
+ * The execute tool's description under this env's GWS_HUMAN_APPROVAL. A config that does not load gets the default
+ * list's description: every call then fails on the same config anyway.
+ */
+export function remoteExecuteDescription(env: ConfigEnv): string {
+  try {
+    return executeDescription(loadConfig(env).GWS_HUMAN_APPROVAL);
+  } catch {
+    return executeDescription(DEFAULT_HUMAN_APPROVAL);
+  }
+}
 
 const Props = z.object({ userId: z.string().min(1), clientId: z.string().min(1) });
 
@@ -24,7 +38,7 @@ function authProps(): AuthProps {
  * from that request's env: the Worker entry resolved its public origin (PUBLIC_BASE_URL) there.
  */
 export function createServer(env: Env): McpServer {
-  const server = new McpServer({ name: "gws-mcp", version: "0.1.0" });
+  const server = new McpServer({ name: "gws-mcp", version: pkg.version });
 
   server.registerTool("search", { description: SEARCH_DESCRIPTION, inputSchema: SearchInput }, async (args) => {
     try {
@@ -35,10 +49,15 @@ export function createServer(env: Env): McpServer {
     }
   });
 
-  server.registerTool("execute", { description: EXECUTE_DESCRIPTION, inputSchema: ExecuteInput }, async (args) => {
+  server.registerTool("execute", { description: remoteExecuteDescription(env as ConfigEnv), inputSchema: ExecuteInput }, async (args) => {
     try {
       const auth = authProps();
-      return await executeTool(args, auth, workersPorts(env), loadConfig(env));
+      return await executeTool(
+        args,
+        auth,
+        { ...workersPorts(env), access: workersAccessPort(env), settingLinks: workersSettingLinkPort(env), humanApprovals: workersHumanApprovalPort(env) },
+        loadConfig(env),
+      );
     } catch (e) {
       return toolError(e);
     }
@@ -71,16 +90,32 @@ function invalidToken(description: string): Response {
   });
 }
 
+function unavailable(): Response {
+  return new Response(JSON.stringify({ error: "temporarily_unavailable", error_description: "try again shortly" }), {
+    status: 503,
+    headers: { "content-type": "application/json", "retry-after": "5" },
+  });
+}
+
 /**
  * MCP endpoint behind the OAuth bearer check (the provider answers 401 before this runs). It also requires
  * the token's grant to be a recorded approval of its user and client, so a client revoke ends every token
- * at once (see isGrantApproved).
+ * at once (see isGrantApproved), and its user to still match an access rule (see userRole).
  */
 export const mcpApiHandler = {
   async fetch(request: Request, workerEnv: Env, ctx: ExecutionContext): Promise<Response> {
     const verified = verifiedIdentity(ctx);
     if (!verified) return invalidToken("the token's grant does not match its identity");
     if (!(await isGrantApproved(workerEnv, verified))) return invalidToken("the token's grant is not approved");
+    // The user must still be on the access allowlist (cached per isolate for at most a minute). A failed lookup
+    // refuses the request without telling the client its token is bad.
+    let role: Awaited<ReturnType<typeof userRole>>;
+    try {
+      role = await userRole(workerEnv, verified.userId);
+    } catch {
+      return unavailable();
+    }
+    if (role === null) return invalidToken("this user is no longer allowed to use this server");
     return createMcpHandler(() => createServer(workerEnv), { route: "/mcp" })(request, workerEnv, ctx);
   },
 };

@@ -1,6 +1,8 @@
-// End-to-end check of Done 1-10 and 16 against a running fake-mode gws-mcp and its fake Google, as a real MCP
+// End-to-end check of Done 1-10, 16, 21 and 22 against a running fake-mode gws-mcp and its fake Google, as a real MCP
 // client and browser would use them. Usage (see scripts/e2e/README.md):
 //   npx tsx scripts/e2e/run.ts --base http://localhost:8787 --fake http://localhost:8788 [--env-file <path>]... [--only 1,5]
+//   npx tsx scripts/e2e/run.ts --base http://localhost:8787 --fake http://localhost:8788 --docker <gws-mcp-e2e-* container> --env-file <path>
+//     (the Node host's image; scripts/e2e/docker.sh builds and runs it, see the README)
 //   npx tsx scripts/e2e/run.ts --base <deployed E2E Worker> --fake <its deployed fake> --remote-d1   (both from wrangler.e2e.jsonc)
 // Targets, D1 and env files: see target.ts. Secrets (FAKE_ADMIN_TOKEN, FAKE_LOGIN_SECRET, the target's token key)
 // are read from dotenv files by path and never printed. Every evidence line goes through the server's own
@@ -19,6 +21,9 @@ import done08 from "./checks/done-08";
 import done09 from "./checks/done-09";
 import done10 from "./checks/done-10";
 import done16 from "./checks/done-16";
+import done21 from "./checks/done-21";
+import done22 from "./checks/done-22";
+import done24 from "./checks/done-24";
 import { d1Query, sqlLiteral, type D1Mode } from "./d1-scan";
 import { McpSession } from "./mcp";
 import { Browser, FakeGoogle, approveClient, connectFromAccounts, signIn } from "./oauth-driver";
@@ -104,6 +109,9 @@ const CHECKS: ReadonlyArray<[number, Check]> = [
   [9, done09],
   [10, done10],
   [16, done16],
+  [21, done21],
+  [22, done22],
+  [24, done24],
   [8, done08],
 ];
 
@@ -121,13 +129,14 @@ function parseArgs(argv: readonly string[]): Args {
   };
   const base = get("--base");
   const fake = get("--fake");
-  if (!base || !fake) throw new Error("usage: run.ts --base <url> --fake <url> [--remote-d1] [--env-file <path>]... [--only 1,5]");
+  if (!base || !fake) throw new Error("usage: run.ts --base <url> --fake <url> [--remote-d1 | --docker <container>] [--env-file <path>]... [--only 1,5]");
   const envFiles = argv.flatMap((a, i) => (a === "--env-file" && argv[i + 1] ? [argv[i + 1] as string] : []));
   const only = get("--only");
+  const docker = get("--docker");
   const origin = targetOrigin("--base", base);
   return {
     base: origin,
-    target: resolveTarget(origin, { fake: targetOrigin("--fake", fake), root: ROOT, remoteD1: argv.includes("--remote-d1"), envFiles }),
+    target: resolveTarget(origin, { fake: targetOrigin("--fake", fake), root: ROOT, remoteD1: argv.includes("--remote-d1"), envFiles, ...(docker ? { docker } : {}) }),
     ...(only ? { only: new Set(only.split(",").map(Number)) } : {}),
   };
 }
@@ -163,6 +172,13 @@ async function setup(args: Args, secrets: RunSecrets, held: string[]): Promise<{
     ],
   });
   evidence.push(`seeded run ${runId}: accounts a, b, c (preset default)`);
+  // The access list lives only in D1. The E2E Worker runs against the fake Google (the harness refuses any other
+  // config), so its fake accounts' test-only domain is allowed there, as a regular user, before anyone signs in.
+  await d1Query(
+    args.target.d1,
+    `INSERT OR IGNORE INTO access_rules (pattern, role, note, created_by, created_at) VALUES (${sqlLiteral("@fake.test")}, 'user', NULL, 'e2e-harness', ${Date.now()})`,
+  );
+  evidence.push("access list: @fake.test allowed as user on the E2E database");
 
   const browser = new Browser(args.base);
   const landed = await signIn(browser, fake, emails.a);

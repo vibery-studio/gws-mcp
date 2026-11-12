@@ -1,0 +1,31 @@
+{
+  "id": "analytics-accounts-list",
+  "source": "synthesized",
+  "provenance": "Discovery analyticsadmin v1beta rev 20261109 ListAccountsResponse; served by the fake seeded with preset \"default\" for alice@fake.test",
+  "request": {
+    "method": "GET",
+    "path": "/analyticsadmin.googleapis.com/v1beta/accounts"
+  },
+  "response": {
+    "status": 200,
+    "headers": {},
+    "body": {
+      "accounts": [
+        {
+          "name": "accounts/1001",
+          "displayName": "Example Co",
+          "regionCode": "VN",
+          "createTime": "2026-09-01T00:00:00.000Z",
+          "updateTime": "2026-09-01T00:00:00.000Z"
+        },
+        {
+          "name": "accounts/1002",
+          "displayName": "Example Labs",
+          "regionCode": "US",
+          "createTime": "2026-09-01T00:00:00.000Z",
+          "updateTime": "2026-09-01T00:00:00.000Z"
+        }
+      ]
+    }
+  }
+}

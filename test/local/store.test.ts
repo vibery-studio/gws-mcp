@@ -100,8 +100,11 @@ describe("the local database file", () => {
     opened = [];
     const raw = new DatabaseSync(path.join(dir, DB_FILE));
     const tables = (raw.prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").all() as Array<{ name: string }>).map((r) => r.name);
-    expect(tables).toEqual(["accounts", "audit_log", "client_approvals", "client_grants", "links", "meta", "rate_counters", "users"]);
+    expect(tables).toEqual(["access_audit", "access_rules", "accounts", "audit_log", "client_approvals", "client_grants", "links", "meta", "rate_counters", "used_links", "user_settings", "users"]);
     expect(raw.prepare("SELECT id FROM users").all()).toEqual([{ id: LOCAL_USER_ID }]);
+    // The access list exists for one schema in both runtimes, but stays empty locally: nothing is enforced here.
+    expect(raw.prepare("SELECT COUNT(*) AS n FROM access_rules").get()).toEqual({ n: 0 });
+    expect(raw.prepare("SELECT COUNT(*) AS n FROM access_audit").get()).toEqual({ n: 0 });
     raw.exec(`PRAGMA user_version = ${SCHEMA_VERSION + 1}`);
     raw.close();
     const message = await rejection(Promise.resolve().then(() => openLocalStore({ dir, upstream: "fake", secrets: secrets.source, redactor: secrets.redactor })));

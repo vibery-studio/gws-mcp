@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { E2E_DATABASE, d1ExecuteArgs } from "../../../scripts/e2e/d1-scan";
+import { E2E_DATABASE, d1ExecuteArgs, dockerContainer } from "../../../scripts/e2e/d1-scan";
 import { FakeGoogle } from "../../../scripts/e2e/oauth-driver";
 import { loadRunSecrets, readDeployedE2E, resolveTarget, targetOrigin } from "../../../scripts/e2e/target";
 
@@ -95,6 +95,25 @@ describe("e2e harness target", () => {
       });
       expect(loadRunSecrets(target).tokenEncKey).toBe(LOCAL_KEY);
     }
+  });
+
+  it("targets a gws-mcp-e2e-* container's database for a loopback base, with explicitly named env files", () => {
+    const envFile = path.join(root, "run.vars");
+    const target = resolveTarget("http://localhost:8787", { fake: LOCAL_FAKE, root, remoteD1: false, envFiles: [envFile], docker: "gws-mcp-e2e-app" });
+    expect(target).toEqual({ fake: LOCAL_FAKE, d1: "docker:gws-mcp-e2e-app", envFiles: [envFile], tokenKeyName: "TOKEN_ENC_KEY" });
+    expect(dockerContainer(target.d1)).toBe("gws-mcp-e2e-app");
+    expect(dockerContainer("local")).toBeNull();
+  });
+
+  it("refuses a container that is not this harness's, a non-loopback base or fake, and the dev files as a default", () => {
+    const envFiles = [path.join(root, "run.vars")];
+    const ok = { fake: LOCAL_FAKE, root, remoteD1: false, envFiles };
+    for (const name of ["gws-mcp", "my-app", "gws-mcp-e2e-", "gws-mcp-e2e-a b", "gws-mcp-e2e-app;rm", "GWS-MCP-E2E-app"]) {
+      expect(() => resolveTarget("http://localhost:8787", { ...ok, docker: name })).toThrow(/only gws-mcp-e2e-\* containers/);
+    }
+    expect(() => resolveTarget(E2E_ORIGIN, { ...ok, docker: "gws-mcp-e2e-app" })).toThrow(/loopback --base/);
+    expect(() => resolveTarget("http://localhost:8787", { ...ok, fake: E2E_FAKE_ORIGIN, docker: "gws-mcp-e2e-app" })).toThrow(/loopback fake/);
+    expect(() => resolveTarget("http://localhost:8787", { ...ok, envFiles: [], docker: "gws-mcp-e2e-app" })).toThrow(/--env-file/);
   });
 
   it("refuses --remote-d1 with a loopback base", () => {

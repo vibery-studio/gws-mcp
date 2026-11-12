@@ -70,6 +70,7 @@ function memoryPorts(o: { allowed?: boolean; upstream?: "google" | "fake"; sandb
         return Response.json({ files: [] });
       },
     },
+    userSettings: { isSet: async () => false, get: async () => null, clear: refuse },
   };
   return { ports, sent, audit, counts };
 }
@@ -150,7 +151,9 @@ describe("the core over in-memory ports", () => {
 describe("the Workers adapters", () => {
   it("expose exactly the port methods, never the store's other methods or a binding", () => {
     const ports = workersPorts(env);
-    expect(Object.keys(ports).sort()).toEqual(["accounts", "approval", "audit", "http", "links", "rate", "sandbox", "secrets", "tokens"]);
+    expect(Object.keys(ports).sort()).toEqual(["accounts", "approval", "audit", "http", "links", "rate", "sandbox", "secrets", "tokens", "userSettings"]);
+    // Snippets can never set a value, so the core's port has no setter.
+    expect(Object.keys(ports.userSettings).sort()).toEqual(["clear", "get", "isSet"]);
     expect(Object.keys(ports.accounts).sort()).toEqual(["getRefreshTokenForRevoke", "listForUser", "resolve", "setAlias", "setDefault", "wipeToken"]);
     expect(Object.keys(ports.approval).sort()).toEqual(["isAllowed", "list", "remove"]);
     expect(Object.keys(ports.links).sort()).toEqual(["delete", "get", "put"]);

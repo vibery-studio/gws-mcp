@@ -1,0 +1,17 @@
+{
+  "id": "searchconsole-sites-get",
+  "source": "synthesized",
+  "provenance": "Discovery searchconsole v1 rev 20261109 WmxSite; served by the fake seeded with preset \"default\" for alice@fake.test",
+  "request": {
+    "method": "GET",
+    "path": "/searchconsole.googleapis.com/webmasters/v3/sites/https%3A%2F%2Fexample.test%2F"
+  },
+  "response": {
+    "status": 200,
+    "headers": {},
+    "body": {
+      "siteUrl": "https://example.test/",
+      "permissionLevel": "SITE_OWNER"
+    }
+  }
+}

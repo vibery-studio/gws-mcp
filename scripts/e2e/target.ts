@@ -4,7 +4,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { CONFIGS, configVar, readWranglerConfig } from "../wrangler";
-import type { D1Mode } from "./d1-scan";
+import { dockerContainer, type D1Mode } from "./d1-scan";
 
 /** The deployed fake-mode E2E Worker and the deployed fake Google it is bound to. */
 export interface DeployedE2E {
@@ -84,7 +84,7 @@ const FAKE_SECRET_NAMES = ["FAKE_ADMIN_TOKEN", "FAKE_LOGIN_SECRET", "FAKE_SIGNIN
 export interface RunTarget {
   /** The fake Google origin the run may send the fake admin token and picker login secret to. */
   fake: string;
-  /** Local state of `npm run dev:e2e`, or the deployed `gws-mcp-e2e` database. */
+  /** Local state of `npm run dev:e2e`, the deployed `gws-mcp-e2e` database, or the SQLite file of a `gws-mcp-e2e-*` Docker container. */
   d1: D1Mode;
   /** Dotenv files read by path, in order (first non-empty value of a key wins). */
   envFiles: string[];
@@ -119,17 +119,30 @@ export function targetOrigin(flag: string, value: string): string {
  * name. The fake receives the fake admin token and the picker login secret, so it is pinned to the target's own.
  * - loopback: a loopback fake only; local D1 of `npm run dev:e2e`, `.dev.vars` + `fake-google/.dev.vars`,
  *   `TOKEN_ENC_KEY` (the local dev key); `--remote-d1` is refused, a local server never uses the deployed database.
+ * - a Docker container (`docker`, a `gws-mcp-e2e-*` name; the Node host's image run by scripts/e2e/docker.sh): the same
+ *   loopback rules, the database is that container's SQLite file, and the env files must be named (`--env-file`; the
+ *   dev files of the Worker are never a default there).
  * - the deployed E2E Worker (`readDeployedE2E`, from the local wrangler.e2e.jsonc): exactly the deployed fake it is
  *   bound to; database `gws-mcp-e2e` remote, `.env`, `E2E_TOKEN_ENC_KEY`.
  * - anything else: refused.
  * `envFiles` (from `--env-file`) replaces the default files; the key name stays the target's.
  */
-export function resolveTarget(base: string, opts: { fake: string; root: string; remoteD1: boolean; envFiles: readonly string[] }): RunTarget {
+export function resolveTarget(
+  base: string,
+  opts: { fake: string; root: string; remoteD1: boolean; envFiles: readonly string[]; docker?: string },
+): RunTarget {
+  if (opts.docker !== undefined && !isLoopback(base)) throw new Error("--docker needs a loopback --base (the container's published port); nothing was sent");
   const deployed = isLoopback(base) ? null : readDeployedE2E(opts.root);
   const files = (defaults: string[]) => (opts.envFiles.length > 0 ? opts.envFiles.map((f) => path.resolve(f)) : defaults);
   if (isLoopback(base)) {
     if (opts.remoteD1) throw new Error("--remote-d1 needs the deployed E2E Worker as --base; a local server uses its local D1; nothing was sent");
     if (!isLoopback(opts.fake)) throw new Error("--fake must be a loopback fake for a loopback --base; nothing was sent");
+    if (opts.docker !== undefined) {
+      const d1: D1Mode = `docker:${opts.docker}`;
+      dockerContainer(d1);
+      if (opts.envFiles.length === 0) throw new Error("--docker needs --env-file (the throwaway secrets of the run); nothing was sent");
+      return { fake: opts.fake, d1, envFiles: files([]), tokenKeyName: "TOKEN_ENC_KEY" };
+    }
     return {
       fake: opts.fake,
       d1: "local",

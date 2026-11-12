@@ -7,10 +7,23 @@ export type Registry = ReadonlyMap<string, FnDef>;
 
 /** POST methods that only read (they take a query in the request body). Must match the SDK generator's list. */
 export const POST_READS: ReadonlySet<string> = new Set([
+  "analyticsadmin.accounts.runAccessReport",
+  "analyticsadmin.properties.runAccessReport",
+  "analyticsdata.properties.batchRunPivotReports",
+  "analyticsdata.properties.batchRunReports",
+  "analyticsdata.properties.checkCompatibility",
+  "analyticsdata.properties.runPivotReport",
+  "analyticsdata.properties.runRealtimeReport",
+  "analyticsdata.properties.runReport",
   "calendar.freebusy.query",
+  "googleads.customers.googleAds.search",
+  "googleads.customers.googleAds.searchStream",
+  "searchconsole.urlInspection.index.inspect",
   "sheets.spreadsheets.getByDataFilter",
   "sheets.spreadsheets.developerMetadata.search",
   "sheets.spreadsheets.values.batchGetByDataFilter",
+  "tagmanager.accounts.containers.workspaces.folders.entities",
+  "webmasters.searchanalytics.query",
 ]);
 
 const ACCOUNTS_PREFIX = "accounts.";

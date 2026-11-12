@@ -8,6 +8,13 @@ import { docsFns } from "./docs";
 import { formsFns } from "./forms";
 import { tasksFns } from "./tasks";
 import { slidesFns } from "./slides";
+import { searchconsoleFns } from "./searchconsole";
+import { analyticsdataFns } from "./analyticsdata";
+import { analyticsadminFns } from "./analyticsadmin";
+import { adminFns } from "./admin";
+import { groupssettingsFns } from "./groupssettings";
+import { tagmanagerFns } from "./tagmanager";
+import { googleadsFns } from "./googleads";
 
 /** Every function generated from the pinned Discovery documents, in service order. */
-export const generatedFns: FnDef[] = [...gmailFns, ...driveFns, ...calendarFns, ...sheetsFns, ...docsFns, ...formsFns, ...tasksFns, ...slidesFns];
+export const generatedFns: FnDef[] = [...gmailFns, ...driveFns, ...calendarFns, ...sheetsFns, ...docsFns, ...formsFns, ...tasksFns, ...slidesFns, ...searchconsoleFns, ...analyticsdataFns, ...analyticsadminFns, ...adminFns, ...groupssettingsFns, ...tagmanagerFns, ...googleadsFns];

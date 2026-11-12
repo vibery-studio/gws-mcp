@@ -1,11 +1,14 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { type ExecLike, RESET_SQL, resetData } from "../../../scripts/reset-data";
+import { DatabaseSync } from "node:sqlite";
+import { type ExecLike, RESET_SQL, ownerArg, resetCommand, resetData } from "../../../scripts/reset-data";
 
 const IDS = { OAUTH_KV: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", CACHE_KV: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" };
 const SESSION_KEY = "session:very-secret-session-id-0000";
 const CONFIG_PATH = "/repo/wrangler.jsonc";
+const OWNER = "owner@example.com";
+const NOW = 1_700_000_000_000;
 const MIGRATIONS = path.resolve(import.meta.dirname, "..", "..", "..", "migrations");
 
 /** Every table the migrations leave, each with the tables it references, read from the migration SQL itself. */
@@ -71,7 +74,7 @@ describe("reset-data", () => {
   it("prints the plan and touches nothing without --apply", async () => {
     const lines: string[] = [];
     const { exec, calls } = stubExec();
-    const res = await resetData({ apply: false, config, exec, log: (l) => lines.push(l) });
+    const res = await resetData({ apply: false, owner: OWNER, now: () => NOW, config, exec, log: (l) => lines.push(l) });
     expect(res.exitCode).toBe(0);
     expect(calls).toHaveLength(0);
     const out = lines.join("\n");
@@ -84,11 +87,11 @@ describe("reset-data", () => {
   it("wipes D1 and both KV namespaces, passing keys only through a private temp file", async () => {
     const lines: string[] = [];
     const { exec, calls } = stubExec();
-    const res = await resetData({ apply: true, config, exec, log: (l) => lines.push(l) });
+    const res = await resetData({ apply: true, owner: OWNER, now: () => NOW, config, exec, log: (l) => lines.push(l) });
     expect(res.exitCode).toBe(0);
 
     const d1 = calls.find((c) => c.args[0] === "d1");
-    expect(d1?.args).toEqual(["d1", "execute", "gws-mcp", "--remote", "--command", RESET_SQL, "--config", CONFIG_PATH]);
+    expect(d1?.args).toEqual(["d1", "execute", "gws-mcp", "--remote", "--command", resetCommand(OWNER, NOW), "--config", CONFIG_PATH]);
     const lists = calls.filter((c) => c.args.slice(0, 3).join(" ") === "kv key list");
     const deletes = calls.filter((c) => c.args.slice(0, 3).join(" ") === "kv bulk delete");
     // The ids whose titles were checked are the ids acted on, never a binding resolved by some other config.
@@ -108,12 +111,51 @@ describe("reset-data", () => {
     for (const c of calls) expect(c.args.join(" ")).not.toContain(SESSION_KEY);
     expect(lines.join("\n")).not.toContain(SESSION_KEY);
     expect(lines).toContain("kv CACHE_KV: deleted 1 keys");
+    // The access list is wiped with the rest (fake-mode rules must not survive), and the owner is written back in the
+    // same execution, so the list is never empty for a first sign-in to claim.
+    expect(RESET_SQL).toContain("DELETE FROM access_rules;");
+    expect(d1?.args[5]).toMatch(/^DELETE FROM access_audit;.*DELETE FROM users; INSERT INTO access_rules .*'owner@example\.com', 'admin'.* INSERT INTO access_audit /);
+    expect(lines.join("\n")).not.toContain(OWNER);
+  });
+
+  it("leaves the owner as the only admin, with its audit row, when run against the real schema", () => {
+    const db = new DatabaseSync(":memory:");
+    for (const file of readdirSync(MIGRATIONS).filter((f) => f.endsWith(".sql")).sort()) db.exec(readFileSync(path.join(MIGRATIONS, file), "utf8"));
+    db.exec(`INSERT INTO users (id, primary_email, created_at) VALUES ('u_fake', 'squatter@fake.test', 0);
+      INSERT INTO access_rules (pattern, role, note, created_by, created_at) VALUES ('squatter@fake.test', 'admin', NULL, 'u_fake', 0), ('@fake.test', 'user', NULL, 'u_fake', 0);
+      INSERT INTO access_audit (id, ts, actor, via, action, pattern_kind, pattern, role) VALUES ('x', 0, 'u_fake', 'web', 'add', 'domain', '@fake.test', 'user');`);
+    db.exec(resetCommand(OWNER, NOW));
+    expect(db.prepare("SELECT pattern, role, created_by FROM access_rules").all()).toEqual([{ pattern: OWNER, role: "admin", created_by: "setup" }]);
+    expect(db.prepare("SELECT actor, via, action, pattern_kind, pattern, role FROM access_audit").all()).toEqual([
+      { actor: "setup", via: "setup", action: "add", pattern_kind: "email", pattern: OWNER, role: "admin" },
+    ]);
+    expect(db.prepare("SELECT COUNT(*) AS n FROM users").get()).toEqual({ n: 0 });
+    db.close();
+  });
+
+  it("refuses to run without a plain owner email, or with a hostile one, touching nothing and echoing nothing", async () => {
+    for (const owner of [undefined, "", "not-an-email", "x'); DELETE FROM access_rules; --@example.com", "a b@example.com", "\u212Aaren@example.com", "a\\b@example.com"]) {
+      for (const apply of [false, true]) {
+        const { exec, calls } = stubExec();
+        const lines: string[] = [];
+        const res = await resetData({ apply, owner, config, exec, log: (l) => lines.push(l) });
+        expect([String(owner), res.exitCode]).toEqual([String(owner), 64]);
+        expect(calls).toHaveLength(0);
+        if (owner) for (const l of lines) expect(l).not.toContain(owner);
+      }
+    }
+    expect(() => resetCommand("x'); DROP TABLE users; --@example.com", NOW)).toThrow();
+  });
+
+  it("reads the owner from --owner", () => {
+    expect(ownerArg(["node", "reset-data.ts", "--owner", OWNER, "--apply"])).toBe(OWNER);
+    expect(ownerArg(["node", "reset-data.ts", "--apply"])).toBeUndefined();
   });
 
   it("refuses to touch a namespace whose title is not a gws-mcp resource", async () => {
     const { exec, calls } = stubExec({ titles: { [IDS.OAUTH_KV]: "gws-mcp-oauth", [IDS.CACHE_KV]: "someone-elses-kv" } });
     const lines: string[] = [];
-    const res = await resetData({ apply: true, config, exec, log: (l) => lines.push(l) });
+    const res = await resetData({ apply: true, owner: OWNER, now: () => NOW, config, exec, log: (l) => lines.push(l) });
     expect(res.exitCode).toBe(1);
     expect(calls.map((c) => c.args.slice(0, 3).join(" "))).toEqual(["kv namespace list"]);
     expect(lines.join("\n")).toMatch(/CACHE_KV/);
@@ -121,14 +163,14 @@ describe("reset-data", () => {
 
   it("refuses a database that is not gws-mcp", async () => {
     const { exec, calls } = stubExec();
-    const res = await resetData({ apply: true, config: { ...config, databaseName: "other" }, exec, log: () => {} });
+    const res = await resetData({ apply: true, owner: OWNER, now: () => NOW, config: { ...config, databaseName: "other" }, exec, log: () => {} });
     expect(res.exitCode).toBe(1);
     expect(calls).toHaveLength(0);
   });
 
   it("stops at the first failing step", async () => {
     const { exec, calls } = stubExec({ failOn: "d1 execute" });
-    const res = await resetData({ apply: true, config, exec, log: () => {} });
+    const res = await resetData({ apply: true, owner: OWNER, now: () => NOW, config, exec, log: () => {} });
     expect(res.exitCode).toBe(1);
     expect(calls.some((c) => c.args[0] === "kv" && c.args[1] === "bulk")).toBe(false);
   });

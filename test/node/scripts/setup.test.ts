@@ -1,8 +1,9 @@
 import { copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { type GoogleClient, type WranglerResult, parseClientLines, setup, withResourceIds } from "../../../scripts/setup";
+import { type GoogleClient, type WranglerResult, ownerEmail, ownerInsertSql, parseClientLines, setup, withResourceIds } from "../../../scripts/setup";
 import { parseJsonc } from "../../../scripts/wrangler";
 
 const REPO = path.resolve(import.meta.dirname, "..", "..", "..");
@@ -10,6 +11,7 @@ const CLIENT: GoogleClient = { id: "123-abc.apps.googleusercontent.com", secret:
 const KEY = "generated-token-enc-key-value-000000000000=";
 const D1_ID = "11111111-2222-4333-8444-555555555555";
 const KV_IDS: Record<string, string> = { "gws-mcp-oauth": "a".repeat(32), "gws-mcp-cache": "c".repeat(32) };
+const OWNER = "owner@example.com";
 
 interface Call {
   args: string[];
@@ -17,13 +19,17 @@ interface Call {
 }
 
 /** A stand-in Cloudflare account behind `wrangler`: D1 and KV lists, a Worker and its secret names. */
-function account(opts: { d1?: Array<{ name: string; uuid: string }>; kv?: Array<{ title: string; id: string }>; secrets?: string[]; worker?: boolean; fail?: string } = {}) {
+function account(
+  opts: { d1?: Array<{ name: string; uuid: string }>; kv?: Array<{ title: string; id: string }>; secrets?: string[]; worker?: boolean; fail?: string; rules?: string[] } = {},
+) {
   const state = {
     d1: [...(opts.d1 ?? [])],
     kv: [...(opts.kv ?? [])],
     secrets: new Set(opts.secrets ?? []),
     worker: opts.worker ?? false,
     deployedWithSecrets: [] as string[][],
+    /** The remote access list: patterns of its rules. */
+    rules: [...(opts.rules ?? [])],
   };
   const calls: Call[] = [];
   const ok = (stdout = ""): WranglerResult => ({ code: 0, stdout, stderr: "" });
@@ -43,6 +49,15 @@ function account(opts: { d1?: Array<{ name: string; uuid: string }>; kv?: Array<
       return ok("created");
     }
     if (cmd.startsWith("d1 migrations apply")) return ok("migrations applied");
+    if (cmd === "d1 execute DB") {
+      const sql = args[args.indexOf("--command") + 1] ?? "";
+      if (sql === "SELECT COUNT(*) AS n FROM access_rules") return ok(JSON.stringify([{ results: [{ n: state.rules.length }], success: true }]));
+      const m = /^INSERT INTO access_rules \(pattern, role, note, created_by, created_at\) SELECT '([^']+)', 'admin'.*WHERE NOT EXISTS \(SELECT 1 FROM access_rules\);/.exec(sql);
+      if (m?.[1] && sql.includes("INSERT INTO access_audit")) {
+        if (state.rules.length === 0) state.rules.push(m[1]);
+        return ok("executed");
+      }
+    }
     if (cmd === "secret list --name") {
       if (!state.worker) return { code: 1, stdout: "", stderr: `✘ [ERROR] Worker "${args[3]}" not found.\n\nIf this is a new Worker, run \`wrangler deploy\` first to create it.\n` };
       return ok(JSON.stringify([...state.secrets].map((name) => ({ name, type: "secret_text" }))));
@@ -79,8 +94,9 @@ interface WrittenConfig {
 }
 const readConfig = () => parseJsonc(readFileSync(configPath(), "utf8")) as WrittenConfig;
 
-function run(acct: ReturnType<typeof account>, prefix = "gws-mcp", client: GoogleClient | null = CLIENT) {
+function run(acct: ReturnType<typeof account>, prefix = "gws-mcp", client: GoogleClient | null = CLIENT, owner: string | null = OWNER) {
   let asked = 0;
+  let askedOwner = 0;
   return {
     result: setup(prefix, {
       root,
@@ -89,10 +105,15 @@ function run(acct: ReturnType<typeof account>, prefix = "gws-mcp", client: Googl
         asked++;
         return client;
       },
+      readOwnerEmail: async () => {
+        askedOwner++;
+        return owner;
+      },
       generateKey: () => KEY,
       log: (line) => logs.push(line),
     }),
     asked: () => asked,
+    askedOwner: () => askedOwner,
   };
 }
 
@@ -163,6 +184,8 @@ describe("setup", () => {
     expect(await again.result).toEqual({ exitCode: 0 });
     expect(acct.calls.filter((c) => c.args.includes("create") || c.args[1] === "put")).toEqual([]);
     expect(again.asked()).toBe(0);
+    expect(again.askedOwner()).toBe(0);
+    expect(acct.state.rules).toEqual([OWNER]);
     expect(readFileSync(configPath(), "utf8")).toBe(configBefore);
     expect(logs).toEqual(
       expect.arrayContaining([
@@ -353,6 +376,88 @@ describe("setup", () => {
     logs = [];
     expect(await run(acct).result).toEqual({ exitCode: 0 });
     expect(logs).toContain("redirect URI: https://gws.example.com/google/callback");
+  });
+});
+
+describe("the access list's first admin", () => {
+  const order = (acct: ReturnType<typeof account>) => acct.calls.map((c) => c.args.slice(0, 3).join(" "));
+
+  it("asks for the owner only while the list is empty, and adds them after the migrations and before the deploy", async () => {
+    const acct = account();
+    const first = run(acct, "gws-mcp", CLIENT, " Owner@Example.com ");
+    expect(await first.result).toEqual({ exitCode: 0 });
+    expect(first.askedOwner()).toBe(1);
+    expect(acct.state.rules).toEqual([OWNER]);
+    const o = order(acct);
+    const migrate = o.indexOf("d1 migrations apply");
+    const insert = acct.calls.findIndex((c) => (c.args[c.args.indexOf("--command") + 1] ?? "").startsWith("INSERT INTO access_rules"));
+    const deploy = o.indexOf("deploy --env= --config");
+    expect(migrate).toBeGreaterThanOrEqual(0);
+    expect(migrate).toBeLessThan(insert);
+    expect(insert).toBeLessThan(deploy);
+    expect(acct.calls[insert]?.args.slice(0, 4)).toEqual(["d1", "execute", "DB", "--remote"]);
+    expect(logs).toContain("access list: owner added as admin");
+    expect(logs.some((l) => l.includes(OWNER))).toBe(false);
+  });
+
+  it("keeps a list that already has rules, asking nothing", async () => {
+    const acct = account({ rules: ["someone@example.com"] });
+    const r = run(acct);
+    expect(await r.result).toEqual({ exitCode: 0 });
+    expect(r.askedOwner()).toBe(0);
+    expect(acct.state.rules).toEqual(["someone@example.com"]);
+    expect(logs).toContain("access list: 1 rule present, kept");
+  });
+
+  it("stops before setting secrets or deploying when no owner, or a malformed or hostile one, is given", async () => {
+    for (const owner of [null, "", "not-an-email", "x'); DELETE FROM access_rules; --@example.com", 'a"b@example.com', "a\\b@example.com", "a b@example.com", "a@example.com; DROP TABLE users"]) {
+      const acct = account();
+      expect(await run(acct, "gws-mcp", CLIENT, owner).result, String(owner)).toEqual({ exitCode: 2 });
+      expect(acct.calls.some((c) => (c.args[c.args.indexOf("--command") + 1] ?? "").startsWith("INSERT"))).toBe(false);
+      expect(acct.calls.some((c) => c.args[0] === "secret" && c.args[1] === "put")).toBe(false);
+      expect(acct.calls.some((c) => c.args[0] === "deploy")).toBe(false);
+      expect(acct.state.rules).toEqual([]);
+      expect(logs.at(-1)).toMatch(/^BLOCKED: /);
+      if (owner) for (const line of logs) expect(line).not.toContain(owner);
+      rmSync(configPath());
+      logs = [];
+    }
+  });
+
+  it("stops when the list cannot be read", async () => {
+    const acct = account({ fail: "d1 execute DB" });
+    expect(await run(acct).result).toEqual({ exitCode: 1 });
+    expect(acct.calls.some((c) => c.args[0] === "deploy" || c.args[0] === "secret")).toBe(false);
+  });
+});
+
+describe("ownerEmail and ownerInsertSql", () => {
+  it("accepts only a plain address, lower-cased, and refuses quotes, backslashes, semicolons and whitespace", () => {
+    expect(ownerEmail("  Ann.B+x@Mail.Example.com ")).toBe("ann.b+x@mail.example.com");
+    for (const bad of ["", "ann", "@example.com", "ann@", "ann@example", "a'b@example.com", 'a"b@example.com', "a\\b@example.com", "a;b@example.com", "a b@example.com", "a\tb@example.com", "ann@exa;mple.com", "ann@-x.com", `${"a".repeat(65)}@example.com`, "\u212Aaren@example.com"]) {
+      expect(ownerEmail(bad), bad).toBeNull();
+    }
+  });
+
+  it("adds the owner once against the real schema, with one audit row, and never a second first admin", () => {
+    const db = new DatabaseSync(":memory:");
+    for (const m of ["0001_init.sql", "0003_access_rules.sql"]) db.exec(readFileSync(path.join(REPO, "migrations", m), "utf8"));
+    db.exec(ownerInsertSql("ann@example.com", 1));
+    db.exec(ownerInsertSql("ann@example.com", 2));
+    db.exec(ownerInsertSql("bob@example.com", 3));
+    expect(db.prepare("SELECT pattern, role, created_by FROM access_rules").all()).toEqual([{ pattern: "ann@example.com", role: "admin", created_by: "setup" }]);
+    expect(db.prepare("SELECT actor, via, action, pattern_kind, pattern, role FROM access_audit").all()).toEqual([
+      { actor: "setup", via: "setup", action: "add", pattern_kind: "email", pattern: "ann@example.com", role: "admin" },
+    ]);
+    db.close();
+  });
+
+  it("builds a conditional insert with its audit row, and refuses an unchecked value", () => {
+    const sql = ownerInsertSql("ann@example.com", 1700000000000);
+    expect(sql).toContain("WHERE NOT EXISTS (SELECT 1 FROM access_rules)");
+    expect(sql).toContain("INSERT INTO access_audit");
+    expect(() => ownerInsertSql("x'); DROP TABLE users; --@example.com", 1)).toThrow();
+    expect(() => ownerInsertSql("Ann@example.com", 1)).toThrow();
   });
 });
 

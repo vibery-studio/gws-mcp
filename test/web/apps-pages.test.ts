@@ -410,7 +410,7 @@ describe("confirm-grant page", () => {
     isDefault: false,
     status: "active",
     scopes: [],
-    services: { gmail: true, drive: true, calendar: false, sheets: false, docs: false, forms: false, tasks: false, slides: false },
+    services: { gmail: true, drive: true, calendar: false, sheets: false, docs: false, forms: false, tasks: false, slides: false, searchconsole: false, analytics: false, analyticsadmin: false, ads: false, groups: false, tagmanager: false, tagmanageredit: false, tagmanagerpublish: false, tagmanageradmin: false },
     ...over,
   });
   const client = { clientId: "Xk3v9QpL2mNa7", name: HOSTILE, redirectHosts: ["app.example"], approvedAt: 0, allowed: [] };

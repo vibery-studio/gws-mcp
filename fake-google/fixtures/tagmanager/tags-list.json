@@ -1,0 +1,39 @@
+{
+  "id": "tagmanager-tags-list",
+  "source": "synthesized",
+  "provenance": "Discovery tagmanager v2 rev 20261111 ListTagsResponse; served by the fake seeded with preset \"default\" for alice@fake.test",
+  "request": {
+    "method": "GET",
+    "path": "/tagmanager.googleapis.com/tagmanager/v2/accounts/6001001001/containers/9001001/workspaces/1/tags"
+  },
+  "response": {
+    "status": 200,
+    "headers": {},
+    "body": {
+      "tag": [
+        {
+          "path": "accounts/6001001001/containers/9001001/workspaces/1/tags/1",
+          "accountId": "6001001001",
+          "containerId": "9001001",
+          "workspaceId": "1",
+          "tagId": "1",
+          "name": "Page view pixel",
+          "type": "html",
+          "parameter": [
+            {
+              "type": "template",
+              "key": "html",
+              "value": "<script>window.seen = true;</script>"
+            }
+          ],
+          "firingTriggerId": [
+            "1"
+          ],
+          "tagFiringOption": "oncePerEvent",
+          "tagManagerUrl": "https://tagmanager.google.com/#/container/accounts/6001001001/containers/9001001/workspaces/1/tags/1?apiLink=tag",
+          "fingerprint": "4031689433"
+        }
+      ]
+    }
+  }
+}

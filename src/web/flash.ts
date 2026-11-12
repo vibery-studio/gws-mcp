@@ -28,12 +28,20 @@ export const FLASH_KINDS = [
   "default-set",
   /** `accountId` */
   "account-disconnected",
+  /** The user's Google Ads details were saved (from the page of `accountId`). Nothing about them travels in the record. */
+  "ads-saved",
+  /** The user's Google Ads developer code was removed (from the page of `accountId`). */
+  "ads-removed",
   /** An AI app's allowed accounts changed. `appId` */
   "app-access-saved",
   /** The user declined an AI app's request for one more account. `appId` */
   "app-request-declined",
   /** `appName`: the app is gone, so its name travels in the record. */
   "app-removed",
+  /** An access list rule was added or its role changed. Nothing about the rule travels in the record. */
+  "access-saved",
+  /** An access list rule was removed. Nothing about the rule travels in the record. */
+  "access-removed",
   /** A failed action. `code`: a backend error code for `plainError`; optional `accountId` or `appId`. */
   "error",
 ] as const;

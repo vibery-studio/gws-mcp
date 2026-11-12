@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { emitService } from "../../../scripts/gen/service";
+import { GENERATED_APIS, POST_READS, emitService } from "../../../scripts/gen/service";
+import { POST_READS as REGISTRY_POST_READS } from "../../../src/core/registry";
 import type { DiscoveryDoc } from "../../../scripts/gen/types";
 
 const SCOPE = "https://www.googleapis.com/auth/x.readonly";
@@ -410,4 +411,116 @@ describe("classification", () => {
       expect(m.signature).toContain("account?: string");
     }
   });
+});
+
+describe("method allowlist", () => {
+  const get = (id: string) => ({ id, httpMethod: "GET", path: id.replace(/\./g, "/"), scopes: [SCOPE] });
+  const tree = {
+    resources: {
+      groups: { methods: { list: get("x.groups.list") }, resources: { aliases: { methods: { list: get("x.groups.aliases.list") } } } },
+      members: { methods: { list: get("x.members.list") } },
+      users: { methods: { list: get("x.users.list") } },
+      customers: { methods: { mutate: get("x.customers.mutate"), get: get("x.customers.get") } },
+    },
+  };
+  const ids = (allow?: Parameters<typeof emitService>[2]) => emitService("gmail", doc(tree), allow).methods.map((m) => m.id);
+
+  it("generates every method without an allowlist", () => {
+    expect(ids()).toHaveLength(6);
+  });
+
+  it("keeps only methods matching an id prefix, an exact id or an id suffix, and counts only those", () => {
+    expect(ids({ allow: { idPrefixes: ["x.groups.", "x.members."] } })).toEqual(["x.groups.aliases.list", "x.groups.list", "x.members.list"]);
+    expect(ids({ allow: { ids: ["x.users.list"], idSuffixes: [".mutate"] } })).toEqual(["x.customers.mutate", "x.users.list"]);
+    const built = emitService("gmail", doc(tree), { allow: { ids: ["x.users.list"] } });
+    expect(built.total).toBe(1);
+    expect(built.unsupported).toEqual([]);
+  });
+
+  it("names the api separately from the service", () => {
+    expect(emitService("gmail", doc(tree), { api: "other" }).api).toBe("other");
+    expect(emitService("gmail", doc(tree)).api).toBe("gmail");
+  });
+
+  it("scopes the directory to groups and members and ads to its reads plus the mutate family", () => {
+    expect(GENERATED_APIS.admin.allow.idPrefixes).toEqual(["directory.groups.", "directory.members."]);
+    expect(GENERATED_APIS.googleads.allow.ids).toEqual([
+      "googleads.customers.listAccessibleCustomers",
+      "googleads.customers.googleAds.search",
+      "googleads.customers.googleAds.searchStream",
+    ]);
+    expect(GENERATED_APIS.googleads.allow.idSuffixes).toEqual([".mutate"]);
+    expect(GENERATED_APIS.groupssettings.service).toBe("groups");
+  });
+});
+
+describe("read-only POST list", () => {
+  it("matches the registry mirror", () => {
+    expect([...POST_READS].sort()).toEqual([...REGISTRY_POST_READS].sort());
+  });
+});
+
+describe("path parameter patterns", () => {
+  const getMethod = (path: string, param: Record<string, unknown>) => ({
+    id: "x.things.get",
+    httpMethod: "GET",
+    path,
+    parameters: { name: { location: "path", required: true, type: "string", ...param } },
+    response: { $ref: "Node" },
+    scopes: [SCOPE],
+  });
+  const one = (path: string, param: Record<string, unknown>) => build({ schemas: nodeSchema, resources: { things: { methods: { get: getMethod(path, param) } } } });
+
+  it("keeps the Discovery pattern of a reserved parameter in the method meta", () => {
+    const b = one("v1/{+name}", { pattern: "^accounts/[^/]+/things/[^/]+$" });
+    expect(b.unsupported).toEqual([]);
+    expect(b.methods[0]!.meta.pathParams).toEqual([{ name: "name", reserved: true, pattern: "^accounts/[^/]+/things/[^/]+$" }]);
+  });
+
+  it("keeps a pattern on a simple parameter too, and none when Discovery has none", () => {
+    expect(one("v1/things/{name}", { pattern: "^[^/]+$" }).methods[0]!.meta.pathParams).toEqual([{ name: "name", reserved: false, pattern: "^[^/]+$" }]);
+    expect(one("v1/things/{name}", {}).methods[0]!.meta.pathParams).toEqual([{ name: "name", reserved: false }]);
+  });
+
+  it("does not generate a reserved parameter without a pattern", () => {
+    const b = one("v1/{+name}", {});
+    expect(b.methods).toEqual([]);
+    expect(b.unsupported).toEqual([{ method: "x.things.get", reason: "reserved path parameter name has no pattern" }]);
+  });
+
+  const uploadOne = (path: string, uploadPath: string, param: Record<string, unknown>) => {
+    const update = {
+      ...getMethod(path, param),
+      id: "x.things.update",
+      httpMethod: "PUT",
+      request: { $ref: "Node" },
+      supportsMediaUpload: true,
+      mediaUpload: { accept: ["*/*"], maxSize: "1000", protocols: { simple: { multipart: true, path: uploadPath } } },
+    };
+    return build({ schemas: nodeSchema, resources: { things: { methods: { update } } } });
+  };
+
+  it("keeps an upload whose template expands the method's params the same way", () => {
+    expect(uploadOne("v1/things/{name}", "/upload/v1/things/{name}", {}).unsupported).toEqual([]);
+    expect(uploadOne("v1/{+name}", "/upload/v1/{+name}", { pattern: "^things/[^/]+$" }).unsupported).toEqual([]);
+  });
+
+  it.each([
+    ["v1/things/{name}", "/upload/v1/{+name}", {}],
+    ["v1/{+name}", "/upload/v1/things/{name}", { pattern: "^things/[^/]+$" }],
+    ["v1/things/{name}", "/upload/v1/things/{name}/{+other}", {}],
+  ])("does not generate %s with the upload template %s", (path, uploadPath, param) => {
+    const b = uploadOne(path, uploadPath, param);
+    expect(b.methods).toEqual([]);
+    expect(b.unsupported).toEqual([{ method: "x.things.update", reason: expect.stringContaining("does not match a path parameter of the method path") }]);
+  });
+
+  it.each(["^.*$", "^accounts/.*$", "accounts/[^/]+", "^accounts/[^/]+", "^accounts/[^/]*$", "^(accounts|users)/[^/]+$", "^accounts/[^/]+/(a+)+$"])(
+    "does not generate a reserved parameter whose pattern %j is not a fixed segment pattern",
+    (pattern) => {
+      const b = one("v1/{+name}", { pattern });
+      expect(b.methods).toEqual([]);
+      expect(b.unsupported).toEqual([{ method: "x.things.get", reason: expect.stringContaining("is not a fixed segment pattern") }]);
+    },
+  );
 });

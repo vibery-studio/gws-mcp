@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { loadConfig } from "../../src/config";
 import { PENDING_TOKEN_PREFIX, type AuthProps, type CallCtx, type FnDef } from "../../src/contracts";
-import { isDestructive } from "../../src/core/destructive";
+import { DESTRUCTIVE_REASON_WORDS, isDestructive } from "../../src/core/destructive";
 import { createCallSession, type DispatchResult } from "../../src/core/dispatch";
 import { buildRegistry, getRegistry, type Registry } from "../../src/core/registry";
 import { workersPorts } from "../../src/runtime/workers/ports";
@@ -16,9 +16,9 @@ const store = openStore(env);
 const baseConfig = loadConfig(env);
 const pending = (ref: string) => `${PENDING_TOKEN_PREFIX}${ref}`;
 
-async function driveAccount() {
+async function driveAccount(scope = "drive.file") {
   const email = uniqueEmail("disp-guard");
-  const seeded = await seedUserWithAccount(env, { email, scopes: [`${G}drive.file`], isDefault: true });
+  const seeded = await seedUserWithAccount(env, { email, scopes: [`${G}${scope}`], isDefault: true });
   await fake.seed({ accounts: [{ email, sub: seeded.sub, preset: "default" }] });
   const auth: AuthProps = { userId: seeded.userId, clientId: `client-${crypto.randomUUID()}` };
   await store.grants.add(auth.userId, auth.clientId, seeded.account.id);
@@ -103,6 +103,31 @@ describe("write guard", () => {
     expect(s.plan[0]?.request?.method).toBe("DELETE");
     expect(s.destructive).toBe(true);
     expect(await fake.state(email).then((st) => st.resources[`drive:file:${email}:seed-file-readme`])).toBeDefined();
+  });
+
+  it("gives every destructive plan step its reason and plain words, and none to a safe step", async () => {
+    const { auth } = await driveAccount();
+    const s = session(auth, false);
+    await s.dispatch("drive.files.delete", { fileId: "seed-file-readme" });
+    await s.dispatch("drive.files.update", { fileId: "seed-file-readme", requestBody: { trashed: true } });
+    await s.dispatch("drive.permissions.create", { fileId: "seed-file-readme", requestBody: { type: "anyone", role: "reader" } });
+    await s.dispatch("drive.permissions.create", { fileId: "seed-file-readme", requestBody: { type: "user", role: "owner", emailAddress: "a@fake.test" } });
+    await s.dispatch("drive.files.create", { requestBody: { name: "x" } });
+    const reasons = ["delete", "trash", "public-share", "owner-transfer"] as const;
+    reasons.forEach((reason, i) => {
+      expect(s.plan[i]).toMatchObject({ destructive: true, reason, reasonText: DESTRUCTIVE_REASON_WORDS[reason] });
+    });
+    expect(s.plan[4]?.destructive).toBe(false);
+    expect(s.plan[4]?.reason).toBeUndefined();
+    expect(s.plan[4]?.reasonText).toBeUndefined();
+  });
+
+  it("plans emptying the trash with its reason when the account holds the full drive scope", async () => {
+    const { auth } = await driveAccount("drive");
+    const s = session(auth, false);
+    await s.dispatch("drive.files.emptyTrash", {});
+    expect(s.plan).toHaveLength(1);
+    expect(s.plan[0]).toMatchObject({ destructive: true, reason: "empty-trash", reasonText: DESTRUCTIVE_REASON_WORDS["empty-trash"] });
   });
 
   it("reports no destructive plan when only safe writes are planned", async () => {
@@ -241,6 +266,44 @@ describe("write guard covers every write verb", () => {
     });
     expect(r).toEqual({ __gwsPending: "s1" });
     expect(s.plan[0]).toMatchObject({ fn: "sheets.spreadsheets.values.update", effect: "write", request: { method: "PUT" } });
+    expect(await fake.requests(email)).toEqual(logBefore);
+  });
+
+  it("refuses a Tag Manager account update aimed at a user permission, plans nothing and sends nothing", async () => {
+    const email = uniqueEmail("disp-guard-tm-perm");
+    const seeded = await seedUserWithAccount(env, { email, scopes: [`${G}tagmanager.manage.accounts`, `${G}tagmanager.manage.users`], isDefault: true });
+    const auth: AuthProps = { userId: seeded.userId, clientId: `client-${crypto.randomUUID()}` };
+    await store.grants.add(auth.userId, auth.clientId, seeded.account.id);
+    const logBefore = await fake.requests(email);
+    const s = session(auth, false);
+    const input = { path: "accounts/1/user_permissions/9", requestBody: { emailAddress: "x@example.com", accountAccess: { permission: "admin" } } };
+    expect(await s.dispatch("tagmanager.accounts.update", input)).toMatchObject({
+      __gwsError: { code: "GWS_INVALID_INPUT", details: { param: "path", reason: "pattern-mismatch" } },
+    });
+    expect(s.plan).toEqual([]);
+    expect(await fake.requests(email)).toEqual(logBefore);
+  });
+
+  it("plans a Tag Manager publish and a Google Ads mutate as destructive, naming the container and customer, and sends nothing", async () => {
+    const email = uniqueEmail("disp-guard-mkt");
+    const scopes = [`${G}tagmanager.edit.containerversions`, `${G}tagmanager.publish`, `${G}adwords`];
+    const seeded = await seedUserWithAccount(env, { email, scopes, isDefault: true });
+    const auth: AuthProps = { userId: seeded.userId, clientId: `client-${crypto.randomUUID()}` };
+    await store.grants.add(auth.userId, auth.clientId, seeded.account.id);
+    const logBefore = await fake.requests(email);
+    const s = session(auth, false);
+    expect(await s.dispatch("tagmanager.accounts.containers.versions.publish", { path: "accounts/11/containers/22/versions/33" })).toEqual({ __gwsPending: "s1" });
+    expect(await s.dispatch("googleads.customers.campaigns.mutate", { customerId: "1234567890", requestBody: { operations: [] } })).toEqual({
+      __gwsPending: "s2",
+    });
+    expect(s.plan.map((p) => [p.fn, p.effect, p.destructive, p.request?.method])).toEqual([
+      ["tagmanager.accounts.containers.versions.publish", "write", true, "POST"],
+      ["googleads.customers.campaigns.mutate", "write", true, "POST"],
+    ]);
+    // The container and version ids from the input are in the planned request, so the plan says what goes live.
+    expect(s.plan[0]?.request?.url).toBe("https://tagmanager.googleapis.com/tagmanager/v2/accounts/11/containers/22/versions/33:publish");
+    expect(s.plan[1]?.request?.url).toContain("/customers/1234567890/campaigns:mutate");
+    expect(s.destructive).toBe(true);
     expect(await fake.requests(email)).toEqual(logBefore);
   });
 });

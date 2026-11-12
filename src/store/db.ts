@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { AuditRow } from "../contracts";
 import { reconnectRequired } from "../core/accounts-capability";
+import type { LinkSqlCondition, LinkSqlDatabase, LinkSqlStatement } from "../core/links";
 import type { Account, AccountStatus } from "../core/ports";
 import { GwsError } from "../errors";
 import { KEY_VERSION, decrypt, encrypt, importKey, tokenAad } from "./crypto";
@@ -573,30 +574,7 @@ export function openStore(env: StoreEnv) {
     /** Writes all rows in one batch (one transaction). */
     async insertMany(rows: readonly AuditRow[]): Promise<void> {
       if (rows.length === 0) return;
-      const stmt = db.prepare(
-        `INSERT INTO audit_log (id, ts, execute_id, user_id, client_id, account_id, fn, effect, applied, status, code,
-           duration_ms, request_id, upstream_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      );
-      await db.batch(
-        rows.map((r) =>
-          stmt.bind(
-            r.id,
-            r.ts,
-            r.execute_id,
-            r.user_id,
-            r.client_id,
-            r.account_id,
-            r.fn,
-            r.effect,
-            r.applied,
-            r.status,
-            r.code,
-            r.duration_ms,
-            r.request_id,
-            r.upstream_status,
-          ),
-        ),
-      );
+      await db.batch(rows.map((r) => auditInsert(db, r)));
     },
   };
 
@@ -643,3 +621,16 @@ export function openStore(env: StoreEnv) {
 }
 
 export type Store = ReturnType<typeof openStore>;
+
+/**
+ * The statement that writes one audit row, for a batch that must record its change in the same transaction. With
+ * `when`, the row is written only while that SQL condition holds (bound after the row's values).
+ */
+export function auditInsert<S extends LinkSqlStatement<S>>(db: LinkSqlDatabase<S>, r: AuditRow, when?: LinkSqlCondition): S {
+  const values = [r.id, r.ts, r.execute_id, r.user_id, r.client_id, r.account_id, r.fn, r.effect, r.applied, r.status, r.code, r.duration_ms, r.request_id, r.upstream_status];
+  const columns = "id, ts, execute_id, user_id, client_id, account_id, fn, effect, applied, status, code, duration_ms, request_id, upstream_status";
+  if (when === undefined) return db.prepare(`INSERT INTO audit_log (${columns}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(...values);
+  return db
+    .prepare(`INSERT INTO audit_log (${columns}) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE ${when.sql}`)
+    .bind(...values, ...when.params);
+}

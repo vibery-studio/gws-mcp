@@ -71,6 +71,95 @@ describe("search ranking", () => {
     expect(names(run("get deck")).slice(0, 3)).toContain("slides.presentations.get");
   });
 
+  it.each([
+    ["seo top queries", "webmasters.searchanalytics.query"],
+    ["gsc queries", "webmasters.searchanalytics.query"],
+    ["search console sites", "webmasters.sites.list"],
+    ["submit sitemap", "webmasters.sitemaps.submit"],
+    ["website traffic report", "analyticsdata.properties.batchRunReports"],
+    ["ga4 sessions", "analyticsdata.properties.batchRunReports"],
+    ["analytics report", "analyticsdata.properties.runReport"],
+    ["list analytics accounts", "analyticsadmin.accounts.list"],
+    ["create analytics property", "analyticsadmin.properties.create"],
+    ["list ads customers", "googleads.customers.listAccessibleCustomers"],
+    ["adwords search", "googleads.customers.googleAds.search"],
+    ["list groups", "directory.groups.list"],
+    ["list group members", "directory.members.list"],
+    ["group settings", "groupsSettings.groups.get"],
+    ["find free time", "calendar.freebusy.query"],
+    ["check availability", "calendar.freebusy.query"],
+    ["gtm list tags", "tagmanager.accounts.containers.workspaces.tags.list"],
+    ["list tag manager triggers", "tagmanager.accounts.containers.workspaces.triggers.list"],
+    ["list gtm variables", "tagmanager.accounts.containers.workspaces.variables.list"],
+    ["create workspace", "tagmanager.accounts.containers.workspaces.create"],
+    ["publish gtm container", "tagmanager.accounts.containers.versions.publish"],
+  ])("ranks a marketing, Groups or Tag Manager method in the top 3 for %s", (query, expected) => {
+    expect(names(run(query)).slice(0, 3)).toContain(expected);
+    expect(names(search({ query }, registry(), config)).slice(0, 3)).toContain(expected);
+  });
+
+  it.each([
+    ["seo", "searchconsole"],
+    ["gsc", "searchconsole"],
+    ["traffic", "analytics"],
+    ["ga4", "analytics"],
+    ["adwords", "ads"],
+    ["campaigns", "ads"],
+    ["members", "groups"],
+    ["gtm", "tagmanager"],
+    ["container", "tagmanager"],
+    ["workspace", "tagmanager"],
+    ["triggers", "tagmanager"],
+  ])("maps %s to the %s service", (word, service) => {
+    const top = run(word).slice(0, 3);
+    expect(top.length).toBeGreaterThan(0);
+    const services = new Map(generatedFns.map((fn) => [fn.name, fn.service]));
+    expect(top.map((r) => services.get(r.name))).toEqual(top.map(() => (service === "analytics" ? expect.stringMatching(/^analytics/) : service)));
+  });
+
+  it.each([
+    ["gmail tag", "gmail.users.labels."],
+    ["tag message", "gmail."],
+    ["tag an email", "gmail."],
+    ["drive tag file", "drive."],
+    ["workspace admin", "access."],
+  ])("keeps the everyday meaning of %s out of Tag Manager", (query, prefix) => {
+    for (const results of [run(query), search({ query }, registry(), config)]) {
+      const top = names(results).slice(0, 3);
+      expect(top.length, query).toBeGreaterThan(0);
+      expect(top.filter((n) => n.startsWith("tagmanager.")), query).toEqual([]);
+    }
+    // The full registry, which also holds the host functions (access.*).
+    const first = names(search({ query }, registry(), config))[0];
+    expect(first?.startsWith(prefix), `${query}: ${first}`).toBe(true);
+  });
+
+  it("ranks a Gmail label method for 'gmail tag' and a label change for 'tag an email'", () => {
+    expect(names(run("gmail tag")).slice(0, 3)).toContain("gmail.users.labels.create");
+    expect(names(run("tag an email")).slice(0, 3)).toContain("gmail.users.messages.modify");
+  });
+
+  it("still sends Tag Manager words to Tag Manager", () => {
+    for (const query of ["tag manager", "gtm tags", "workspace"]) {
+      const top = names(run(query)).slice(0, 3);
+      expect(top, query).toHaveLength(3);
+      for (const n of top) expect(n, query).toMatch(/^tagmanager\./);
+    }
+  });
+
+  it("keeps a form publish first for a bare 'publish', with the Tag Manager publish right behind", () => {
+    expect(names(run("publish")).slice(0, 2)).toEqual(["forms.forms.setPublishSettings", "tagmanager.accounts.containers.versions.publish"]);
+    expect(names(run("publish form"))[0]).toBe("forms.forms.setPublishSettings");
+  });
+
+  it("flags the Tag Manager publish and Ads mutates as destructive in search results", () => {
+    expect(run("publish gtm container").find((r) => r.name === "tagmanager.accounts.containers.versions.publish")?.destructiveHint).toBe(true);
+    const mutates = run("adwords campaigns mutate").filter((r) => r.name.endsWith(".mutate"));
+    expect(mutates.length).toBeGreaterThanOrEqual(3);
+    for (const r of mutates) expect(r.destructiveHint, r.name).toBe(true);
+    expect(run("seo top queries").find((r) => r.name === "webmasters.searchanalytics.query")?.destructiveHint).toBeUndefined();
+  });
+
   it("splits a camelCase query word the way method names are indexed", () => {
     expect(names(run("docs batchUpdate"))[0]).toBe("docs.documents.batchUpdate");
     expect(run("batchUpdate")).toEqual(run("batch update"));

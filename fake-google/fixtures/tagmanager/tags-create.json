@@ -1,0 +1,34 @@
+{
+  "id": "tagmanager-tags-create",
+  "source": "synthesized",
+  "provenance": "Discovery tagmanager v2 rev 20261111 Tag; served by the fake seeded with preset \"default\" for alice@fake.test",
+  "request": {
+    "method": "POST",
+    "path": "/tagmanager.googleapis.com/tagmanager/v2/accounts/6001001001/containers/9001001/workspaces/1/tags"
+  },
+  "response": {
+    "status": 200,
+    "headers": {},
+    "body": {
+      "path": "accounts/6001001001/containers/9001001/workspaces/1/tags/2",
+      "accountId": "6001001001",
+      "containerId": "9001001",
+      "workspaceId": "1",
+      "tagId": "2",
+      "name": "Signup event",
+      "type": "html",
+      "parameter": [
+        {
+          "type": "template",
+          "key": "html",
+          "value": "<b>signup</b>"
+        }
+      ],
+      "firingTriggerId": [
+        "2"
+      ],
+      "tagManagerUrl": "https://tagmanager.google.com/#/container/accounts/6001001001/containers/9001001/workspaces/1/tags/2?apiLink=tag",
+      "fingerprint": "2075938918"
+    }
+  }
+}

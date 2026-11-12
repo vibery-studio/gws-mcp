@@ -1,10 +1,11 @@
 import type { ZodType } from "zod";
 import type { Config, GoogleService, SecretName as ConfigSecretName } from "./config";
 import type { GwsErrorCode, WireError } from "./errors";
+import type { DestructiveReason } from "./core/destructive";
 
 export type Effect = "read" | "write";
 
-export type FnService = GoogleService | "helpers" | "accounts";
+export type FnService = GoogleService | "helpers" | "accounts" | "access" | "settings";
 
 /** Plan step id: "s1", "s2", ... in call order within one execute. */
 export type StepId = `s${number}`;
@@ -30,8 +31,11 @@ export interface MethodMeta {
   servicePath: string;
   /** Discovery path template, e.g. "gmail/v1/users/{userId}/messages". */
   path: string;
-  /** `reserved` is true for `{+name}` expansion (keeps "/"). */
-  pathParams: Array<{ name: string; reserved: boolean }>;
+  /**
+   * `reserved` is true for `{+name}` expansion (keeps "/"). `pattern` is the Discovery pattern the raw value must
+   * match before it is expanded, e.g. `^accounts/[^/]+$`; the generator gives every reserved param one.
+   */
+  pathParams: Array<{ name: string; reserved: boolean; pattern?: string }>;
   queryParams: Array<{ name: string; repeated: boolean }>;
   requestBody: boolean;
   mediaUpload?: { multipartPath: string; simplePath: string; accept: string[]; maxBytes: number };
@@ -84,7 +88,7 @@ export interface ResolvedAccount {
  * The only config values host fns see: an explicit allowlist of non-secret values. Everything else (the
  * upstream mode, the fake's URL, secrets, bindings) stays with the dispatcher.
  */
-export const HOST_CONFIG_KEYS = ["PUBLIC_BASE_URL", "GOOGLE_SCOPE_PRESET", "CALL_RESPONSE_MAX_BYTES"] as const satisfies readonly (keyof Config)[];
+export const HOST_CONFIG_KEYS = ["PUBLIC_BASE_URL", "GOOGLE_SCOPE_PRESET", "CALL_RESPONSE_MAX_BYTES", "GWS_HUMAN_APPROVAL"] as const satisfies readonly (keyof Config)[];
 export type HostConfig = Pick<Config, (typeof HOST_CONFIG_KEYS)[number]>;
 
 /** A connected account as a client may see it: only accounts in its allowlist, never ids or token state. */
@@ -146,6 +150,55 @@ export interface AccountsCapability {
   ungrant(ref: string): Promise<CapabilityWrite<{ email: string }>>;
 }
 
+/** A role on this gws-mcp's access list: admins also manage the list. */
+export type AccessRole = "admin" | "user";
+
+/** One rule of the access list: an exact email, or a whole domain written `@example.com`. */
+export interface AccessRuleView {
+  pattern: string;
+  kind: "email" | "domain";
+  role: AccessRole;
+  note?: string;
+  /** Epoch ms. */
+  createdAt: number;
+}
+
+/**
+ * The access list (who may use this gws-mcp) for `access.*` fns only, bound to the session's user. Every method
+ * first requires that user to be an admin, read fresh (never from a cache), else GWS_ACCESS_ADMIN_REQUIRED. Writes
+ * plan a step in dry-run and change nothing; they run only under apply. The last admin rule can be neither removed
+ * nor made a user.
+ */
+export interface AccessCapability {
+  /** Read. */
+  list(): Promise<AccessRuleView[]>;
+  /** Write. Adds a rule, or sets the role of an existing one ("unchanged" when it already has that role). */
+  add(pattern: string, role: AccessRole, note?: string): Promise<CapabilityWrite<{ outcome: "added" | "role" | "unchanged"; rule: AccessRuleView }>>;
+  /**
+   * Destructive write. Removes a rule; every user it shuts out has their AI apps cut off with it (approvals and
+   * allowlists deleted in the same transaction). `removed` is false when no such rule existed. `warning` says so
+   * plainly when the follow-up revoke of provider grants did not finish (`appsFailed` > 0).
+   */
+  remove(pattern: string): Promise<CapabilityWrite<{ removed: boolean; usersShutOut: number; appsEnded: number; appsFailed: number; warning?: string }>>;
+}
+
+/**
+ * The calling user's settings for `settings.*` fns only, bound to the session's user. Values never cross: a fn learns
+ * only whether a key is set. There is no set: values are entered on the account's page or with the local CLI. `clear`
+ * plans a step in dry-run and changes nothing; it runs only under apply.
+ */
+export interface SettingsCapability {
+  /** Read. */
+  isSet(key: string): Promise<boolean>;
+  /** Write. `cleared` is false when no value was stored. */
+  clear(key: string): Promise<CapabilityWrite<{ cleared: boolean }>>;
+  /**
+   * A one-time link to the web page where the signed-in user sets `key` themselves. Grants nothing on its own; the
+   * value never passes through the snippet. GWS_UNSUPPORTED_RUNTIME where gws-mcp has no web page.
+   */
+  requestLink(key: string): Promise<UserLink>;
+}
+
 /** Per-call context handed to host fns. No env, binding, secret or raw upstream handle: only capabilities. */
 export interface CallCtx {
   apply: boolean;
@@ -161,6 +214,10 @@ export interface CallCtx {
   resolveAllowed(ref?: string): Promise<ResolvedAccount>;
   /** Present only for `accounts.*` fns. */
   accounts?: AccountsCapability;
+  /** Present only for `access.*` fns. */
+  access?: AccessCapability;
+  /** Present only for `settings.*` fns. */
+  settings?: SettingsCapability;
 }
 
 export interface PlanRequest {
@@ -176,7 +233,12 @@ export interface PlanStep {
   account?: string;
   effect: Effect;
   destructive: boolean;
+  /** Why the step is destructive, with the same thing in plain words; set whenever `destructive` is true. */
+  reason?: DestructiveReason;
+  reasonText?: string;
   request?: PlanRequest;
+  /** True when the step's reason needs a person's approval before it may run (GWS_HUMAN_APPROVAL). */
+  needsApproval?: boolean;
   /** True when the step depends on the result of an unexecuted write. */
   incomplete?: boolean;
   dependsOn?: StepId[];
@@ -195,6 +257,18 @@ export interface CallRecord {
   ms: number;
 }
 
+/**
+ * What a dry run offers when its plan has steps that need a person's approval: the one-time link the person opens to
+ * approve (`url`, ISO `expiresAt`), or, when no link can be made for this plan, `note` saying why. `reasons` are the
+ * reasons of those steps.
+ */
+export interface ApprovalOffer {
+  reasons: string[];
+  url?: string;
+  expiresAt?: string;
+  note?: string;
+}
+
 export interface ExecuteOutput {
   ok: boolean;
   executeId: string;
@@ -205,6 +279,8 @@ export interface ExecuteOutput {
   logs: string[];
   calls: CallRecord[];
   plan: PlanStep[];
+  /** Set by a dry run whose plan has steps that need a person's approval. */
+  approval?: ApprovalOffer;
 }
 
 /** One row of `audit_log`. Metadata only: never bodies, file contents or tokens. */

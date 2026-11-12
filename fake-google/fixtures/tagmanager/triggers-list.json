@@ -1,0 +1,28 @@
+{
+  "id": "tagmanager-triggers-list",
+  "source": "synthesized",
+  "provenance": "Discovery tagmanager v2 rev 20261111 ListTriggersResponse; served by the fake seeded with preset \"default\" for alice@fake.test",
+  "request": {
+    "method": "GET",
+    "path": "/tagmanager.googleapis.com/tagmanager/v2/accounts/6001001001/containers/9001001/workspaces/1/triggers"
+  },
+  "response": {
+    "status": 200,
+    "headers": {},
+    "body": {
+      "trigger": [
+        {
+          "path": "accounts/6001001001/containers/9001001/workspaces/1/triggers/1",
+          "accountId": "6001001001",
+          "containerId": "9001001",
+          "workspaceId": "1",
+          "triggerId": "1",
+          "name": "All pages",
+          "type": "pageview",
+          "tagManagerUrl": "https://tagmanager.google.com/#/container/accounts/6001001001/containers/9001001/workspaces/1/triggers/1?apiLink=trigger",
+          "fingerprint": "239275356"
+        }
+      ]
+    }
+  }
+}

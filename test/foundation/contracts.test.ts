@@ -46,13 +46,14 @@ describe("host fn env carries no secrets", () => {
     // @ts-expect-error host fns get no env at all
     type _NoEnv = CallCtx["env"];
     expectTypeOf<keyof CallCtx>().toEqualTypeOf<
-      "apply" | "auth" | "account" | "config" | "executeId" | "call" | "planStep" | "resolveAllowed" | "accounts"
+      "apply" | "auth" | "account" | "config" | "executeId" | "call" | "planStep" | "resolveAllowed" | "accounts" | "access" | "settings"
     >();
     expectTypeOf<Extract<keyof CallCtx["config"], Forbidden>>().toEqualTypeOf<never>();
     expectTypeOf<Extract<keyof NonNullable<CallCtx["accounts"]>, Forbidden>>().toEqualTypeOf<never>();
+    expectTypeOf<keyof NonNullable<CallCtx["settings"]>>().toEqualTypeOf<"isSet" | "clear" | "requestLink">();
     expectTypeOf<Extract<keyof CallCtx["auth"], Forbidden>>().toEqualTypeOf<never>();
     expectTypeOf<CallCtx["config"]>().toEqualTypeOf<HostConfig>();
-    expectTypeOf<keyof HostConfig>().toEqualTypeOf<"PUBLIC_BASE_URL" | "GOOGLE_SCOPE_PRESET" | "CALL_RESPONSE_MAX_BYTES">();
+    expectTypeOf<keyof HostConfig>().toEqualTypeOf<"PUBLIC_BASE_URL" | "GOOGLE_SCOPE_PRESET" | "CALL_RESPONSE_MAX_BYTES" | "GWS_HUMAN_APPROVAL">();
     expectTypeOf<HostEnv>().toHaveProperty("DB");
   });
 

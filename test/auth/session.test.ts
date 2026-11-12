@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers";
 import { Hono } from "hono";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
+import { forgetAccessCache } from "../../src/auth/access";
 import {
   SESSION_TTL_SECONDS,
   createSession,
@@ -13,8 +14,17 @@ import {
 
 const LATER = 13 * 60 * 60 * 1000;
 
+/** Sessions belong to users on the access list (the test setup allows @fake.test). */
+async function seedUser(id: string, email: string): Promise<void> {
+  await env.DB.prepare("INSERT OR IGNORE INTO users (id, primary_email, created_at) VALUES (?, ?, 0)").bind(id, email).run();
+}
+
+beforeAll(async () => {
+  await seedUser("u_session-test", "session-test@fake.test");
+});
+
 const app = new Hono<{ Bindings: Env }>();
-app.post("/create", async (c) => c.json(await createSession(c, "u_session-test")));
+app.post("/create", async (c) => c.json(await createSession(c, c.req.query("user") ?? "u_session-test")));
 app.get("/get", async (c) => c.json(await getSession(c)));
 app.get("/get-later", async (c) => c.json(await getSession(c, Date.now() + LATER)));
 app.post("/destroy", async (c) => {
@@ -22,12 +32,13 @@ app.post("/destroy", async (c) => {
   return c.body(null, 204);
 });
 
-function call(path: string, cookie?: string): Promise<Response> {
-  return Promise.resolve(app.request(path, { method: path === "/create" || path === "/destroy" ? "POST" : "GET", headers: cookie ? { cookie } : {} }, env));
+function call(path: string, cookie?: string, testEnv: Env = env): Promise<Response> {
+  const method = path.startsWith("/create") || path === "/destroy" ? "POST" : "GET";
+  return Promise.resolve(app.request(path, { method, headers: cookie ? { cookie } : {} }, testEnv));
 }
 
-async function created(): Promise<{ id: string; setCookie: string; session: Session }> {
-  const res = await call("/create");
+async function created(user?: string): Promise<{ id: string; setCookie: string; session: Session }> {
+  const res = await call(user === undefined ? "/create" : `/create?user=${encodeURIComponent(user)}`);
   const setCookie = res.headers.getSetCookie()[0] ?? "";
   const id = /^__Host-gws_session=([^;]+)/.exec(setCookie)?.[1] ?? "";
   return { id, setCookie, session: (await res.json()) as Session };
@@ -101,5 +112,40 @@ describe("csrfMatches", () => {
     for (const posted of ["x".repeat(42), "y".repeat(43), "", undefined, ["x".repeat(43)], `${"x".repeat(43)}x`]) {
       expect(csrfMatches(session, posted)).toBe(false);
     }
+  });
+});
+
+describe("session and the access list", () => {
+  it("ends once no access rule allows the user any more", async () => {
+    await seedUser("u_session-removed", "removed@access-session.test");
+    await env.DB.prepare("INSERT INTO access_rules (pattern, role, note, created_by, created_at) VALUES (?, 'user', NULL, 't', 0)")
+      .bind("removed@access-session.test")
+      .run();
+    forgetAccessCache();
+    const { id } = await created("u_session-removed");
+    expect(((await (await call("/get", `__Host-gws_session=${id}`)).json()) as Session | null)?.userId).toBe("u_session-removed");
+    await env.DB.prepare("DELETE FROM access_rules WHERE pattern = ?").bind("removed@access-session.test").run();
+    forgetAccessCache();
+    expect(await (await call("/get", `__Host-gws_session=${id}`)).json()).toBeNull();
+  });
+
+  it("is absent for a user the list never allowed", async () => {
+    await seedUser("u_session-outsider", "someone@outsider-session.test");
+    const { id } = await created("u_session-outsider");
+    expect(await (await call("/get", `__Host-gws_session=${id}`)).json()).toBeNull();
+  });
+
+  it("fails closed: a failed access lookup reads as signed out", async () => {
+    await seedUser("u_session-dbfail", "dbfail@fake.test");
+    const { id } = await created("u_session-dbfail");
+    forgetAccessCache();
+    const broken = {
+      prepare: () => {
+        throw new Error("D1 unavailable");
+      },
+    } as unknown as D1Database;
+    expect(await (await call("/get", `__Host-gws_session=${id}`, { ...env, DB: broken })).json()).toBeNull();
+    // The failure was not cached: the next lookup with the store back reads the session.
+    expect(((await (await call("/get", `__Host-gws_session=${id}`)).json()) as Session | null)?.userId).toBe("u_session-dbfail");
   });
 });

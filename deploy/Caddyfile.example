@@ -1,0 +1,9 @@
+# Caddy gets and renews the TLS certificate for the domain by itself (ports 80 and 443 must reach it).
+{$GWS_DOMAIN} {
+	reverse_proxy gws-mcp:8787 {
+		# Overwrite, never pass on, the client's own value: gws-mcp trusts this header from Caddy only.
+		header_up X-Real-IP {remote_host}
+		# MCP responses stream; do not buffer them.
+		flush_interval -1
+	}
+}

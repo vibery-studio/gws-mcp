@@ -19,6 +19,7 @@ import {
   renderPage,
   statusChip,
 } from "../../src/web/ui";
+import { ACCESS_COPY } from "../../src/web/access-copy";
 import { COPY } from "../../src/web/copy";
 import { expectPlainLanguage } from "./plain-language";
 
@@ -100,6 +101,15 @@ describe("page shell", () => {
     expect(page).toContain('<meta name="referrer" content="same-origin">');
     expect(page).toContain('<main id="main"');
     expectPlainLanguage(page);
+  });
+
+  it("adds the access list's item for an admin only, marked when it is the current area", async () => {
+    const navOf = (page: string) => /<nav class="nav" aria-label="Main">([\s\S]*?)<\/nav>/.exec(page)?.[1] ?? "";
+    const admin = navOf(await renderPage({ title: "Who", user: { ...user, isAdmin: true }, current: "access", body: html`<p>x</p>` }));
+    expect(admin).toContain(`<a href="/access" aria-current="page">${ACCESS_COPY.nav}</a>`);
+    for (const u of [user, { ...user, isAdmin: false }]) {
+      expect(navOf(await renderPage({ title: "A", user: u, current: "accounts", body: html`<p>x</p>` }))).not.toContain("/access");
+    }
   });
 
   it("has no navigation or sign-out without a signed-in user", async () => {

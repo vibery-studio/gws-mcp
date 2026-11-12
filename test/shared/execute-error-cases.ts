@@ -24,13 +24,24 @@ const ACCOUNT: Account = {
   updatedAt: 1,
 };
 
-/** In-memory ports over `sandbox`; every upstream answer waits `upstreamDelayMs`. */
-export function memoryPorts(sandbox: SandboxPort, config: Config, upstreamDelayMs = 0): CorePorts {
+/**
+ * In-memory ports over `sandbox`. With `holdUpstream`, every upstream answer waits until the snippet's run has ended
+ * and the execute has started closing: the release is a timer set when the run settles, and everything from there to
+ * the session's close is microtasks, so a call holding the only upstream slot is still holding it at close, at any load.
+ */
+export function memoryPorts(sandbox: SandboxPort, config: Config, holdUpstream = false): CorePorts {
+  let release: () => void = () => undefined;
+  const runEnded = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const held: SandboxPort = holdUpstream
+    ? { ...sandbox, run: (req) => sandbox.run(req).finally(() => void setTimeout(release, 0)) }
+    : sandbox;
   const refuse = () => Promise.reject(new Error("not used by this test"));
   const counts = new Map<string, number>();
   const audit: AuditRow[] = [];
   return {
-    sandbox,
+    sandbox: held,
     accounts: {
       resolve: async (userId, ref) => {
         if (userId !== ACCOUNT.userId || (ref !== undefined && ref !== ACCOUNT.email)) throw new GwsError("GWS_ACCOUNT_UNKNOWN", "no such account");
@@ -57,10 +68,11 @@ export function memoryPorts(sandbox: SandboxPort, config: Config, upstreamDelayM
     http: {
       upstream: config.GOOGLE_UPSTREAM,
       send: async () => {
-        if (upstreamDelayMs > 0) await new Promise((resolve) => setTimeout(resolve, upstreamDelayMs));
+        if (holdUpstream) await runEnded;
         return Response.json({ files: [] });
       },
     },
+    userSettings: { isSet: async () => false, get: async () => null, clear: refuse },
   };
 }
 
@@ -72,21 +84,21 @@ export interface ExecuteErrorCasesOptions {
 
 /** The cases every runtime must pass. */
 export function executeErrorCases(runtime: string, o: ExecuteErrorCasesOptions): void {
-  const exec = (code: string, config: Partial<Config> = {}, upstreamDelayMs = 0): Promise<ExecuteReport> => {
+  const exec = (code: string, config: Partial<Config> = {}, holdUpstream = false): Promise<ExecuteReport> => {
     const c = { ...o.config, ...config };
-    return runExecute({ code, apply: false, auth: AUTH, ports: memoryPorts(o.sandbox(), c, upstreamDelayMs), config: c });
+    return runExecute({ code, apply: false, auth: AUTH, ports: memoryPorts(o.sandbox(), c, holdUpstream), config: c });
   };
 
   describe(`the error an execute reports (${runtime})`, () => {
     it("is the root error a Promise.all rejected with, not the error close() gave the calls still queued", async () => {
-      // One upstream slot: the first call holds it (slowly), the second waits for it, the third is rate-limited at once.
+      // One upstream slot: the first call holds it until the run ends, the second waits for it, the third is rate-limited at once.
       // The execute itself counts one hit, so a client limit of 3 refuses the third call.
       const out = await exec(
         `async () => {
           await Promise.all([sdk.drive.files.list({}), sdk.drive.files.list({}), sdk.drive.files.list({})]);
         }`,
         { UPSTREAM_CONCURRENCY: 1, RATE_CLIENT_PER_MIN: 3 },
-        300,
+        true,
       );
       expect(out.ok).toBe(false);
       expect(out.error).toMatchObject({ code: "GWS_RATE_LIMITED", details: { scope: "client", limit: 3 } });
@@ -124,7 +136,7 @@ export function executeErrorCases(runtime: string, o: ExecuteErrorCasesOptions):
     });
 
     it("is never an error the end of the execute gave calls still queued, even when the snippet names its code", async () => {
-      // The first call holds the only upstream slot (slowly) and the second waits for it when the snippet throws its
+      // The first call holds the only upstream slot until the run ends and the second waits for it when the snippet throws its
       // own GWS_EXECUTION_ERROR text; close() then releases the waiting call with GWS_EXECUTION_ERROR too.
       const out = await exec(
         `async () => {
@@ -134,7 +146,7 @@ export function executeErrorCases(runtime: string, o: ExecuteErrorCasesOptions):
           throw new Error("GWS_EXECUTION_ERROR: the snippet's own words");
         }`,
         { UPSTREAM_CONCURRENCY: 1 },
-        300,
+        true,
       );
       expect(out.calls.filter((c) => c.code === "GWS_EXECUTION_ERROR")).toHaveLength(1);
       expect(out.error).toEqual({ code: "GWS_EXECUTION_ERROR", message: "GWS_EXECUTION_ERROR: the snippet's own words" });

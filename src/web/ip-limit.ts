@@ -124,8 +124,10 @@ function refusal(route: LimitedPath, limit: number, windowStart: number, now: nu
  * reads only. The first request of an address in a window also prunes counter rows of past windows.
  *
  * The address is CF-Connecting-IP, which Cloudflare's edge sets (overwriting any client value) on every request
- * from the internet. A request without it never came through the edge: an in-process test or a subrequest
- * over a service binding (no Worker binds this one). Those are not counted.
+ * from the internet. On the Node host, its HTTP front sets it the same way (src/runtime/node/http.ts): from the
+ * socket's peer, or from a configured trusted proxy's forwarding header, and never from the client. A request
+ * without it never came through either: an in-process test or a subrequest over a service binding (no Worker
+ * binds this one). Those are not counted.
  */
 export async function limitAddress(
   env: Pick<Env, "DB" | "TOKEN_ENC_KEY">,

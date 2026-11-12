@@ -1,9 +1,10 @@
 import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
-import { GOOGLE_SERVICES, SERVICE_SCOPES, loadConfig, type GoogleService } from "../../src/config";
+import { DEFAULT_CONNECT_SERVICES, GOOGLE_SERVICES, SERVICE_SCOPES, loadConfig, type GoogleService } from "../../src/config";
 import { openStore } from "../../src/store/db";
 import { COPY, SERVICE_NAMES, serviceDescription } from "../../src/web/copy";
-import { NAME_ERRORS } from "../../src/web/pages/account-details";
+import { openUserSettings } from "../../src/store/user-settings";
+import { ADS_COPY, ADS_ERRORS, NAME_ERRORS } from "../../src/web/pages/account-details";
 import { SERVICE_ERRORS } from "../../src/web/pages/account-services";
 import { seedUserWithAccount } from "../helpers/accounts";
 import { uniqueEmail } from "../helpers/fake";
@@ -141,17 +142,22 @@ describe("Google accounts list", () => {
     expectPlainLanguage(html, { allow: [s.account.email, second.email, "Notes helper"] });
   });
 
-  it("adds another Google account through the existing connect flow, for every Google service", async () => {
+  it("adds another Google account through the existing connect flow, for the one-click services only", async () => {
     const s = await signedIn("acc-add");
     const html = await page(s.browser, "/accounts");
     expect(html).toContain("Add another Google account</button>");
     const form = formTo(html, "/connections/connect");
-    expect(form.fields).toEqual([["csrf", s.csrf], ...GOOGLE_SERVICES.map((x): [string, string] => ["service", x])]);
+    expect(form.fields).toEqual([["csrf", s.csrf], ...DEFAULT_CONNECT_SERVICES.map((x): [string, string] => ["service", x])]);
+    for (const optIn of ["ads", "groups", "analyticsadmin", "tagmanageredit", "tagmanagerpublish", "tagmanageradmin"]) {
+      expect(form.fields.some(([, v]) => v === optIn), optIn).toBe(false);
+    }
     const res = await post(s.browser, form.action, form.fields);
     expect(redirectsToGoogle(res)).toBe(true);
     const google = new URL(res.headers.get("location") ?? "");
     expect(google.searchParams.get("login_hint")).toBeNull();
-    expect(google.searchParams.get("scope")?.split(" ").sort()).toEqual([...new Set(["openid", "email", ...GOOGLE_SERVICES.flatMap((x) => SERVICE_SCOPES[preset][x])])].sort());
+    expect(google.searchParams.get("scope")?.split(" ").sort()).toEqual(
+      [...new Set(["openid", "email", ...DEFAULT_CONNECT_SERVICES.flatMap((x) => SERVICE_SCOPES[preset][x])])].sort(),
+    );
   });
 
   it("after a new account connects, says the existing AI apps can't use it yet and links to them; a reconnect says only connected", async () => {
@@ -486,5 +492,181 @@ describe("account POST ownership", () => {
     expect(mine.browser.cookieNames("__Host-gws_gstate")).toEqual([]);
     expect(mine.browser.cookieNames("__Host-gws_flash")).toEqual([]);
     expect([await snapshot(mine.userId), await snapshot(theirs.userId)]).toEqual(before);
+  });
+});
+
+describe("Google Ads details on the account page", () => {
+  const ADS = [...SERVICE_SCOPES[preset].ads];
+  const settings = openUserSettings(env);
+  const fakeCode = () => `FAKE-dev-code-${crypto.randomUUID().slice(0, 8)}`;
+  const adsUrl = (id: string) => accountUrl(id, "/ads");
+
+  it("shows the section only for an account with Google Ads connected, with an empty masked field", async () => {
+    const s = await signedIn("ads-show", { second: { scopes: [...GMAIL_DRIVE, ...ADS] } });
+    if (!s.second) throw new Error("setup");
+    expect(await page(s.browser, accountUrl(s.account.id))).not.toContain(ADS_COPY.codeLabel);
+    const html = await page(s.browser, accountUrl(s.second.id));
+    expect(html).toContain(`<h2>${ADS_COPY.title}</h2>`);
+    expect(decode(html)).toContain(ADS_COPY.missing);
+    expect(html).toContain('<input type="password" id="ads-code" name="developerCode" value=""');
+    expect(formTo(html, adsUrl(s.second.id)).fields).toEqual([["csrf", s.csrf]]);
+    expect(formsOf(html).some((f) => f.action === `${adsUrl(s.second?.id ?? "")}/remove`)).toBe(false);
+    expectPlainLanguage(html, { allow: [s.account.email, s.second.email] });
+  });
+
+  it("saves, keeps, replaces and removes the developer code without ever showing it again", async () => {
+    const s = await signedIn("ads-save", { scopes: [...GMAIL_DRIVE, ...ADS] });
+    const id = s.account.id;
+    const first = fakeCode();
+    let res = await post(s.browser, adsUrl(id), [["csrf", s.csrf], ["developerCode", first], ["managerId", "123-456-7890"]]);
+    expect([res.status, res.headers.get("location")]).toEqual([303, accountUrl(id)]);
+    expect(await settings.get(s.userId, "ads.developer_token")).toBe(first);
+    expect(await settings.get(s.userId, "ads.login_customer_id")).toBe("1234567890");
+    let html = await page(s.browser, accountUrl(id));
+    expect(flashText(html)).toBe("Google Ads details saved.");
+    expect(html).toContain(ADS_COPY.saved);
+    expect(html).toContain('<input type="password" id="ads-code" name="developerCode" value=""');
+    expect(html).toContain('name="managerId" value="123-456-7890"');
+    expect(html.includes(first)).toBe(false);
+    expectPlainLanguage(html, { allow: [s.account.email] });
+
+    // An empty code keeps the saved one; an empty manager ID removes it.
+    res = await post(s.browser, adsUrl(id), [["csrf", s.csrf], ["developerCode", ""], ["managerId", ""]]);
+    expect(res.status).toBe(303);
+    expect(await settings.get(s.userId, "ads.developer_token")).toBe(first);
+    expect(await settings.isSet(s.userId, "ads.login_customer_id")).toBe(false);
+
+    const second = fakeCode();
+    expect((await post(s.browser, adsUrl(id), [["csrf", s.csrf], ["developerCode", second], ["managerId", ""]])).status).toBe(303);
+    expect(await settings.get(s.userId, "ads.developer_token")).toBe(second);
+    html = await page(s.browser, accountUrl(id));
+    expect([html.includes(first), html.includes(second)]).toEqual([false, false]);
+
+    const remove = formTo(html, `${adsUrl(id)}/remove`);
+    expect(remove.fields).toEqual([["csrf", s.csrf]]);
+    res = await post(s.browser, remove.action, remove.fields);
+    expect([res.status, res.headers.get("location")]).toEqual([303, accountUrl(id)]);
+    expect(await settings.isSet(s.userId, "ads.developer_token")).toBe(false);
+    html = await page(s.browser, accountUrl(id));
+    expect(flashText(html)).toBe("Google Ads details removed.");
+    expect(decode(html)).toContain(ADS_COPY.missing);
+  });
+
+  it("refuses a bad code or manager ID with the reason beside the field, never showing the code, and saves nothing", async () => {
+    const s = await signedIn("ads-bad", { scopes: [...GMAIL_DRIVE, ...ADS] });
+    const id = s.account.id;
+    const badCode = "FAKE bad code with spaces";
+    let res = await post(s.browser, adsUrl(id), [["csrf", s.csrf], ["developerCode", badCode], ["managerId", "123-456-7890"]]);
+    expect(res.status).toBe(400);
+    let html = await res.text();
+    expect(html).toContain(`<p class="field-error" id="ads-code-error">${ADS_ERRORS.codeInvalid.replace(/'/g, "&#39;")}</p>`);
+    expect(html.includes(badCode)).toBe(false);
+    expect(html).toContain('name="managerId" value="123-456-7890"');
+    expectPlainLanguage(html, { allow: [s.account.email] });
+
+    res = await post(s.browser, adsUrl(id), [["csrf", s.csrf], ["developerCode", ""], ["managerId", ""]]);
+    expect(res.status).toBe(400);
+    expect(await res.text()).toContain(ADS_ERRORS.codeMissing);
+
+    const good = fakeCode();
+    res = await post(s.browser, adsUrl(id), [["csrf", s.csrf], ["developerCode", good], ["managerId", "12-34"]]);
+    expect(res.status).toBe(400);
+    html = await res.text();
+    expect(html).toContain(ADS_ERRORS.managerInvalid);
+    expect(html).toContain('name="managerId" value="12-34"');
+    expect(html.includes(good)).toBe(false);
+    // Both fields are checked before either is saved.
+    expect([await settings.isSet(s.userId, "ads.developer_token"), await settings.isSet(s.userId, "ads.login_customer_id")]).toEqual([false, false]);
+  });
+
+  it("shows a saved value that no longer decrypts as such (never an error page), with save-again and remove", async () => {
+    const s = await signedIn("ads-unreadable", { scopes: [...GMAIL_DRIVE, ...ADS] });
+    const id = s.account.id;
+    const code = fakeCode();
+    await settings.set(s.userId, "ads.developer_token", code);
+    await settings.set(s.userId, "ads.login_customer_id", "5550004444");
+    const corrupt = (key: string) =>
+      env.DB.prepare("UPDATE user_settings SET value_ct = ? WHERE user_id = ? AND key = ?").bind("A".repeat(40), s.userId, key).run();
+    await corrupt("ads.login_customer_id");
+    let html = await page(s.browser, accountUrl(id));
+    expect(decode(html)).toContain(ADS_COPY.saved);
+    expect(decode(html)).toContain(ADS_COPY.managerUnreadable);
+    expect(html).toContain('name="managerId" value=""');
+    expectPlainLanguage(html, { allow: [s.account.email] });
+
+    await corrupt("ads.developer_token");
+    html = await page(s.browser, accountUrl(id));
+    expect(decode(html)).toContain(ADS_COPY.unreadable);
+    expect(decode(html)).not.toContain(ADS_COPY.keepHint);
+    expectPlainLanguage(html, { allow: [s.account.email] });
+    // An unreadable code is nothing to keep: the field must be filled to save.
+    const empty = await post(s.browser, adsUrl(id), [["csrf", s.csrf], ["developerCode", ""], ["managerId", ""]]);
+    expect(empty.status).toBe(400);
+    expect(await empty.text()).toContain(ADS_ERRORS.codeMissing);
+    // Saving again fixes it.
+    expect((await post(s.browser, adsUrl(id), [["csrf", s.csrf], ["developerCode", code], ["managerId", "555-000-4444"]])).status).toBe(303);
+    expect([await settings.get(s.userId, "ads.developer_token"), await settings.get(s.userId, "ads.login_customer_id")]).toEqual([code, "5550004444"]);
+    // Remove clears unreadable values too.
+    await corrupt("ads.developer_token");
+    const remove = formTo(await page(s.browser, accountUrl(id)), `${adsUrl(id)}/remove`);
+    expect((await post(s.browser, remove.action, remove.fields)).status).toBe(303);
+    expect([await settings.isSet(s.userId, "ads.developer_token"), await settings.isSet(s.userId, "ads.login_customer_id")]).toEqual([false, false]);
+  });
+
+  it("offers removing saved details on every account page once no account has Google Ads, and the last Ads account was disconnected", async () => {
+    const s = await signedIn("ads-gone", { scopes: GMAIL_DRIVE, second: { scopes: [...GMAIL_DRIVE, ...ADS] } });
+    if (!s.second) throw new Error("setup");
+    const adsAccount = s.second;
+    await settings.set(s.userId, "ads.developer_token", fakeCode());
+    await settings.set(s.userId, "ads.login_customer_id", "5550005555");
+    await store.accounts.wipeToken(s.userId, adsAccount.id);
+    for (const id of [s.account.id, adsAccount.id]) {
+      const html = await page(s.browser, accountUrl(id));
+      expect(decode(html)).toContain(ADS_COPY.savedElsewhere);
+      expect(html).not.toContain('id="ads-code"');
+      expect(formTo(html, `${adsUrl(id)}/remove`).fields).toEqual([["csrf", s.csrf]]);
+      expectPlainLanguage(html, { allow: [s.account.email, adsAccount.email] });
+    }
+    const remove = formTo(await page(s.browser, accountUrl(adsAccount.id)), `${adsUrl(adsAccount.id)}/remove`);
+    const res = await post(s.browser, remove.action, remove.fields);
+    expect([res.status, res.headers.get("location")]).toEqual([303, accountUrl(adsAccount.id)]);
+    expect([await settings.isSet(s.userId, "ads.developer_token"), await settings.isSet(s.userId, "ads.login_customer_id")]).toEqual([false, false]);
+    const after = await page(s.browser, accountUrl(adsAccount.id));
+    expect(flashText(after)).toBe("Google Ads details removed.");
+    expect(decode(after)).not.toContain(ADS_COPY.savedElsewhere);
+  });
+
+  it("never shows back a rejected manager ID that isn't digits, spaces and dashes, such as a developer code in the wrong field", async () => {
+    const s = await signedIn("ads-wrong-field", { scopes: [...GMAIL_DRIVE, ...ADS] });
+    const pasted = fakeCode();
+    const res = await post(s.browser, adsUrl(s.account.id), [["csrf", s.csrf], ["developerCode", fakeCode()], ["managerId", pasted]]);
+    expect(res.status).toBe(400);
+    const html = await res.text();
+    expect(html).toContain(ADS_ERRORS.managerInvalid);
+    expect(html.includes(pasted)).toBe(false);
+    expect(html).toContain('name="managerId" value=""');
+    expect([await settings.isSet(s.userId, "ads.developer_token"), await settings.isSet(s.userId, "ads.login_customer_id")]).toEqual([false, false]);
+  });
+
+  it("refuses a missing or wrong CSRF field, another user's account and an account without Google Ads, changing nothing", async () => {
+    const mine = await signedIn("ads-guard-mine", { scopes: [...GMAIL_DRIVE, ...ADS], second: { scopes: GMAIL_DRIVE } });
+    const theirs = await signedIn("ads-guard-theirs", { scopes: [...GMAIL_DRIVE, ...ADS] });
+    if (!mine.second) throw new Error("setup");
+    const code = fakeCode();
+    await settings.set(theirs.userId, "ads.developer_token", code);
+    for (const csrf of [[], [["csrf", "wrong"]]] as Array<Array<[string, string]>>) {
+      for (const path of [adsUrl(mine.account.id), `${adsUrl(mine.account.id)}/remove`]) {
+        const res = await post(mine.browser, path, [...csrf, ["developerCode", fakeCode()]]);
+        expect([path, res.status]).toEqual([path, 403]);
+      }
+    }
+    for (const path of [adsUrl(theirs.account.id), `${adsUrl(theirs.account.id)}/remove`, adsUrl("a_nope")]) {
+      const res = await post(mine.browser, path, [["csrf", mine.csrf], ["developerCode", fakeCode()]]);
+      expect([path, res.status]).toEqual([path, 404]);
+    }
+    const noAds = await post(mine.browser, adsUrl(mine.second.id), [["csrf", mine.csrf], ["developerCode", fakeCode()]]);
+    expect(noAds.status).toBe(400);
+    expect(await settings.isSet(mine.userId, "ads.developer_token")).toBe(false);
+    expect(await settings.get(theirs.userId, "ads.developer_token")).toBe(code);
   });
 });

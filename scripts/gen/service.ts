@@ -14,13 +14,84 @@ import {
   zodSchema,
 } from "./zod-emit";
 
-/** POST methods that only read: they take a query in the request body. */
-const POST_READS: ReadonlySet<string> = new Set([
+/** POST methods that only read: they take a query in the request body. src/core/registry.ts mirrors this list. */
+export const POST_READS: ReadonlySet<string> = new Set([
+  "analyticsadmin.accounts.runAccessReport",
+  "analyticsadmin.properties.runAccessReport",
+  "analyticsdata.properties.batchRunPivotReports",
+  "analyticsdata.properties.batchRunReports",
+  "analyticsdata.properties.checkCompatibility",
+  "analyticsdata.properties.runPivotReport",
+  "analyticsdata.properties.runRealtimeReport",
+  "analyticsdata.properties.runReport",
   "calendar.freebusy.query",
+  "googleads.customers.googleAds.search",
+  "googleads.customers.googleAds.searchStream",
+  "searchconsole.urlInspection.index.inspect",
   "sheets.spreadsheets.getByDataFilter",
   "sheets.spreadsheets.developerMetadata.search",
   "sheets.spreadsheets.values.batchGetByDataFilter",
+  "tagmanager.accounts.containers.workspaces.folders.entities",
+  "webmasters.searchanalytics.query",
 ]);
+
+/**
+ * Methods whose runtime answer is a JSON array of the documented response, although Discovery types one response.
+ * Google Ads streams batches of rows, so `searchStream` answers `[batch, batch, ...]`.
+ */
+const ARRAY_RESPONSE_IDS: ReadonlySet<string> = new Set(["googleads.customers.googleAds.searchStream"]);
+
+/** Which methods of a Discovery document are generated; everything else is omitted and named in UNSUPPORTED's header. */
+export interface MethodAllowlist {
+  /** Method ids that start with one of these. */
+  readonly idPrefixes?: readonly string[];
+  /** Method ids that are exactly one of these. */
+  readonly ids?: readonly string[];
+  /** Method ids that end with one of these. */
+  readonly idSuffixes?: readonly string[];
+}
+
+export interface ApiSpec {
+  /** The SDK service the api's functions belong to. */
+  readonly service: GoogleService;
+  readonly allow?: MethodAllowlist;
+}
+
+/**
+ * Every Discovery document the SDK is generated from, in output order. The key is the pin and file stem
+ * (`discovery/<api>.<version>.json`); several apis can serve one service. Without `allow`, every method is considered.
+ */
+export const GENERATED_APIS = {
+  gmail: { service: "gmail" },
+  drive: { service: "drive" },
+  calendar: { service: "calendar" },
+  sheets: { service: "sheets" },
+  docs: { service: "docs" },
+  forms: { service: "forms" },
+  tasks: { service: "tasks" },
+  slides: { service: "slides" },
+  searchconsole: { service: "searchconsole" },
+  analyticsdata: { service: "analytics" },
+  analyticsadmin: { service: "analyticsadmin" },
+  admin: { service: "groups", allow: { idPrefixes: ["directory.groups.", "directory.members."] } },
+  groupssettings: { service: "groups" },
+  tagmanager: { service: "tagmanager" },
+  googleads: {
+    service: "ads",
+    allow: {
+      ids: ["googleads.customers.listAccessibleCustomers", "googleads.customers.googleAds.search", "googleads.customers.googleAds.searchStream"],
+      idSuffixes: [".mutate"],
+    },
+  },
+} as const satisfies Record<string, ApiSpec>;
+export type ApiName = keyof typeof GENERATED_APIS;
+export const API_NAMES = Object.keys(GENERATED_APIS) as ApiName[];
+
+const allowed = (id: string, allow: MethodAllowlist | undefined): boolean =>
+  allow === undefined ||
+  (allow.ids ?? []).includes(id) ||
+  (allow.idPrefixes ?? []).some((p) => id.startsWith(p)) ||
+  (allow.idSuffixes ?? []).some((p) => id.endsWith(p));
 
 /**
  * Push-notification plumbing that needs a public receiver. `*.watch` and `*.channels.stop` are matched by id suffix,
@@ -72,6 +143,8 @@ export interface EmittedSchema {
 }
 
 export interface EmittedService {
+  /** The pin and module name; equals `service` unless several documents serve one service. */
+  api: string;
   service: GoogleService;
   version: string;
   revision: string;
@@ -103,6 +176,25 @@ function exampleValue(name: string, p: DiscoveryParam): string {
   if (p.type === "integer" || p.type === "number") return p.format === "int64" || p.format === "uint64" ? `"0"` : "0";
   if (p.enum !== undefined && p.enum.length > 0) return lit(p.enum[0]!);
   return `"<${name}>"`;
+}
+
+/**
+ * A Discovery path pattern the host can enforce: anchored, and made only of literal segments and one-segment
+ * wildcards (`^accounts/[^/]+/containers/[^/]+$`). Such a pattern fixes how many segments a value has and what
+ * each literal is, and matches in linear time. Anything looser (`^.*$`) would not stop a value naming another
+ * resource, so the method is not generated.
+ */
+const SEGMENT = String.raw`(?:[A-Za-z0-9_-]+|\[\^/\]\+)`;
+const ENFORCEABLE_PATTERN = new RegExp(String.raw`^\^${SEGMENT}(?:/${SEGMENT})*\$$`);
+
+/** The pattern kept for one path parameter. A reserved (`{+name}`) parameter must have an enforceable one. */
+function pathPattern(name: string, p: DiscoveryParam, reserved: boolean): string | undefined {
+  if (p.pattern === undefined) {
+    if (reserved) throw new UnsupportedShape(`reserved path parameter ${name} has no pattern`);
+    return undefined;
+  }
+  if (!ENFORCEABLE_PATTERN.test(p.pattern)) throw new UnsupportedShape(`path parameter ${name}: pattern ${p.pattern} is not a fixed segment pattern`);
+  return p.pattern;
 }
 
 interface FieldInfo {
@@ -193,8 +285,21 @@ function emitMethod(
   const pathParams: MethodMeta["pathParams"] = [];
   for (const match of m.path.matchAll(/\{(\+?)([^}]+)\}/g)) {
     const name = match[2]!;
-    if (params[name]?.location !== "path") throw new UnsupportedShape(`path template variable ${name} has no path parameter`);
-    pathParams.push({ name, reserved: match[1] === "+" });
+    const param = params[name];
+    if (param?.location !== "path") throw new UnsupportedShape(`path template variable ${name} has no path parameter`);
+    const reserved = match[1] === "+";
+    const pattern = pathPattern(name, param, reserved);
+    pathParams.push({ name, reserved, ...(pattern !== undefined ? { pattern } : {}) });
+  }
+  // An upload template expands the same params, so each of its variables must be one of them with the same
+  // expansion; a `{+x}` only there would send a value no pattern was checked for.
+  if (mediaUpload !== undefined) {
+    for (const match of mediaUpload.simplePath.matchAll(/\{(\+?)([^}]+)\}/g)) {
+      const declared = pathParams.find((p) => p.name === match[2]);
+      if (declared === undefined || declared.reserved !== (match[1] === "+")) {
+        throw new UnsupportedShape(`upload path variable ${match[2]} does not match a path parameter of the method path`);
+      }
+    }
   }
 
   // Downloads: an `alt` switch for media, and a media output shape.
@@ -244,6 +349,9 @@ function emitMethod(
   if (mediaDownload) {
     outputExpr = responseRef === undefined ? MEDIA_OUT_ZOD : `z.union([${MEDIA_OUT_ZOD}, ${schemaAccess(responseRef)}()])`;
     outputTs = responseRef === undefined ? MEDIA_OUT_TS : `${MEDIA_OUT_TS} | ${responseRef}`;
+  } else if (responseRef !== undefined && ARRAY_RESPONSE_IDS.has(id)) {
+    outputExpr = `z.union([${schemaAccess(responseRef)}(), z.array(${schemaAccess(responseRef)}())])`;
+    outputTs = `${responseRef} | ${responseRef}[]`;
   } else if (responseRef !== undefined) {
     outputExpr = `${schemaAccess(responseRef)}()`;
     outputTs = responseRef;
@@ -312,7 +420,7 @@ function closure(
 }
 
 /** Maps one Discovery document to generator records, listing methods it cannot support with a reason. */
-export function emitService(service: GoogleService, doc: DiscoveryDoc): EmittedService {
+export function emitService(service: GoogleService, doc: DiscoveryDoc, opts: { api?: string; allow?: MethodAllowlist } = {}): EmittedService {
   const all = new Map<string, EmittedSchema>();
   const bad = new Map<string, string>();
   for (const name of Object.keys(doc.schemas).sort(byteOrder)) {
@@ -329,7 +437,9 @@ export function emitService(service: GoogleService, doc: DiscoveryDoc): EmittedS
     }
   }
 
-  const discovered = collectMethods(doc).sort((a, b) => byteOrder(a.id, b.id));
+  const discovered = collectMethods(doc)
+    .filter((m) => allowed(m.id, opts.allow))
+    .sort((a, b) => byteOrder(a.id, b.id));
   const methods: GenMethod[] = [];
   const unsupported: Unsupported[] = [];
   const droppedUploads: string[] = [];
@@ -349,6 +459,7 @@ export function emitService(service: GoogleService, doc: DiscoveryDoc): EmittedS
   const schemas = new Map<string, EmittedSchema>();
   for (const name of [...reachable].sort(byteOrder)) schemas.set(name, all.get(name)!);
   return {
+    api: opts.api ?? service,
     service,
     version: doc.version,
     revision: doc.revision,

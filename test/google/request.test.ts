@@ -404,3 +404,117 @@ describe("describeRequest", () => {
     expect(plan.body).toBeUndefined();
   });
 });
+
+describe("Discovery path patterns", () => {
+  const byId = (id: string): MethodMeta => {
+    const meta = generatedFns.find((f) => f.name === id)?.method;
+    if (!meta) throw new Error(`no generated method ${id}`);
+    return meta;
+  };
+  const accountsUpdate = byId("tagmanager.accounts.update");
+  const body = { requestBody: { emailAddress: "someone@example.com", accountAccess: { permission: "admin" } } };
+
+  it("refuses an account update whose path names a user permission", () => {
+    const e = thrown(() => buildRequest(accountsUpdate, { path: "accounts/1/user_permissions/9", ...body }));
+    expect(e.code).toBe("GWS_INVALID_INPUT");
+    expect(e.details).toEqual({ param: "path", reason: "pattern-mismatch", expected: "^accounts/[^/]+$" });
+    expect(e.message).not.toContain("user_permissions");
+  });
+
+  it("still builds an account update for an account path", () => {
+    expect(buildRequest(accountsUpdate, { path: "accounts/1", ...body }).url).toBe("https://tagmanager.googleapis.com/tagmanager/v2/accounts/1");
+  });
+
+  it.each([
+    ["accounts/1/../user_permissions/9", "dot-segment"],
+    ["accounts/..", "dot-segment"],
+    ["accounts//1", "empty-segment"],
+    ["accounts/1/", "empty-segment"],
+    ["/accounts/1", "empty-segment"],
+    ["accounts/1%2Fuser_permissions%2F9", "percent-sign"],
+    ["accounts/1%2fuser_permissions%2f9", "percent-sign"],
+    ["accounts/%2e%2e", "percent-sign"],
+    ["accounts/%2E", "percent-sign"],
+    ["accounts/1%5Cuser_permissions", "percent-sign"],
+    ["accounts/1%252Fuser_permissions", "percent-sign"],
+    ["accounts/%41", "percent-sign"],
+    ["accounts/%c0%af", "percent-sign"],
+    ["accounts/%%32%66", "percent-sign"],
+    ["accounts/1%", "percent-sign"],
+    ["accounts／1", "pattern-mismatch"],
+    ["accounts∕1", "pattern-mismatch"],
+    ["ACCOUNTS/1", "pattern-mismatch"],
+    ["Accounts/1", "pattern-mismatch"],
+    ["accounts/1/containers/2", "pattern-mismatch"],
+    ["1", "pattern-mismatch"],
+  ])("refuses the reserved value %j (%s)", (path, reason) => {
+    const e = thrown(() => buildRequest(accountsUpdate, { path, ...body }));
+    expect(e.code).toBe("GWS_INVALID_INPUT");
+    expect(e.details).toMatchObject({ param: "path", reason });
+  });
+
+  it("refuses a percent sign in a reserved value even without a pattern", () => {
+    const e = thrown(() => buildRequest(reservedGet, { name: "projects/p1%2F..%2Fother" }));
+    expect(e.details).toEqual({ param: "name", reason: "percent-sign" });
+  });
+
+  it.each([
+    ["accounts/1:x", "accounts/1%3Ax"],
+    ["accounts/1;x", "accounts/1%3Bx"],
+    ["accounts/1?x", "accounts/1%3Fx"],
+    ["accounts/1#x", "accounts/1%23x"],
+    ["accounts/1\\x", "accounts/1%5Cx"],
+    ["accounts/1／user_permissions／9", "accounts/1%EF%BC%8Fuser_permissions%EF%BC%8F9"],
+    ["accounts/1∕x", "accounts/1%E2%88%95x"],
+    ["accounts/．．", "accounts/%EF%BC%8E%EF%BC%8E"],
+    ["accounts/..x", "accounts/..x"],
+  ])("sends %j as one encoded segment", (path, sent) => {
+    const req = buildRequest(accountsUpdate, { path, ...body });
+    expect(req.url).toBe(`https://tagmanager.googleapis.com/tagmanager/v2/${sent}`);
+    expect(new URL(req.url).pathname).toBe(`/tagmanager/v2/${sent}`);
+  });
+
+  it("keeps the method's custom verb as the only literal colon", () => {
+    const runReport = byId("analyticsdata.properties.runReport");
+    const url = buildRequest(runReport, { property: "properties/1:x" }).url;
+    expect(url).toBe("https://analyticsdata.googleapis.com/v1beta/properties/1%3Ax:runReport");
+    expect(new URL(url).pathname.split(":")).toHaveLength(2);
+  });
+
+  it("checks the pattern on an upload path too", () => {
+    const meta: MethodMeta = {
+      ...reservedGet,
+      httpMethod: "PUT",
+      requestBody: true,
+      pathParams: [{ name: "name", reserved: true, pattern: "^things/[^/]+$" }],
+      mediaUpload: { multipartPath: "/upload/v1/{+name}", simplePath: "/upload/v1/{+name}", accept: ["*/*"], maxBytes: 100 },
+    };
+    const media = { mimeType: "text/plain", text: "x" };
+    expect(buildRequest(meta, { name: "things/1", media }).url).toBe("https://docs.googleapis.com/upload/v1/things/1?uploadType=media");
+    expect(thrown(() => buildRequest(meta, { name: "other/1", media })).details).toMatchObject({ param: "name", reason: "pattern-mismatch" });
+  });
+
+  it("refuses a template that expands a param unlike its declaration", () => {
+    const meta: MethodMeta = {
+      ...filesGet,
+      httpMethod: "PUT",
+      mediaUpload: { multipartPath: "/upload/drive/v3/files/{+fileId}", simplePath: "/upload/drive/v3/files/{+fileId}", accept: ["*/*"], maxBytes: 100 },
+    };
+    const e = thrown(() => buildRequest(meta, { fileId: "a/b", media: { mimeType: "text/plain", text: "x" } }));
+    expect(e.code).toBe("GWS_INTERNAL");
+    expect(e.details).toEqual({ reason: "expansion-mismatch" });
+  });
+
+  it("checks the pattern of a simple param and keeps its escaping", () => {
+    const meta: MethodMeta = { ...filesGet, pathParams: [{ name: "fileId", reserved: false, pattern: "^[^/]+$" }] };
+    expect(buildRequest(meta, { fileId: "a b%2e" }).url).toBe("https://www.googleapis.com/drive/v3/files/a%20b%252e");
+    expect(thrown(() => buildRequest(meta, { fileId: "a/b" })).details).toEqual({ param: "fileId", reason: "pattern-mismatch", expected: "^[^/]+$" });
+  });
+
+  it("refuses a pattern that does not compile as an internal error", () => {
+    const meta: MethodMeta = { ...reservedGet, pathParams: [{ name: "name", reserved: true, pattern: "^(a$" }] };
+    const e = thrown(() => buildRequest(meta, { name: "a" }));
+    expect(e.code).toBe("GWS_INTERNAL");
+    expect(e.details).toEqual({ reason: "bad-path-pattern" });
+  });
+});

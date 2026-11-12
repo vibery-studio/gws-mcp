@@ -1,5 +1,5 @@
-// Wipes the deployed gws-mcp data: every row of the D1 database `gws-mcp` and every key of the KV namespaces
-// bound as OAUTH_KV and CACHE_KV. Required before switching GOOGLE_UPSTREAM from fake to google, because
+// Wipes the deployed gws-mcp data: every row of the D1 database `gws-mcp` (the access list included) and every key of
+// the KV namespaces bound as OAUTH_KV and CACHE_KV. Required before switching GOOGLE_UPSTREAM from fake to google, because
 // anyone could mint fake-mode users, MCP grants and sessions.
 //
 // Default is a dry run that prints the SQL and the namespaces and touches nothing. `--apply` runs it, only
@@ -9,27 +9,46 @@
 // resolve. KV key names (which include session ids) are never printed or put in argv: they pass through a
 // mode-600 temp file that is deleted afterwards.
 //
-// Usage: npx tsx scripts/reset-data.ts [--apply]
+// The access list is wiped too, and the owner given with --owner (checked like setup's owner email) is written back as
+// its only admin in the same D1 execution, so the list is never empty for a first sign-in to claim.
+//
+// Usage: npx tsx scripts/reset-data.ts --owner <email> [--apply]
 import { execFile } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { ownerEmail, ownerInsertSql } from "./setup";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const RESOURCE_PREFIX = "gws-mcp";
 const KV_BINDINGS = ["OAUTH_KV", "CACHE_KV"] as const;
 type KvBinding = (typeof KV_BINDINGS)[number];
 
-/** Children before parents, so foreign keys hold at every step. Every table is named, cascade or not. */
+/**
+ * Children before parents, so foreign keys hold at every step. Every table is named, cascade or not. The access list
+ * goes too: in fake mode anyone can sign in as any email, so a rule added then (even an admin) must not survive into
+ * real-Google mode. `resetCommand` appends the owner's admin rule to the same execution, so the list is never empty
+ * (an empty list would make the first person to sign in its admin).
+ */
 export const RESET_SQL = [
+  "DELETE FROM access_audit;",
+  "DELETE FROM access_rules;",
   "DELETE FROM client_grants;",
   "DELETE FROM client_approvals;",
   "DELETE FROM audit_log;",
   "DELETE FROM rate_counters;",
+  "DELETE FROM used_links;",
+  "DELETE FROM approvals;",
+  "DELETE FROM user_settings;",
   "DELETE FROM accounts;",
   "DELETE FROM users;",
 ].join(" ");
+
+/** The whole reset as one D1 execution: the wipe, then the owner (checked by `ownerEmail`) as the only admin. */
+export function resetCommand(owner: string, now: number): string {
+  return `${RESET_SQL} ${ownerInsertSql(owner, now)}`;
+}
 
 export interface ResetConfig {
   databaseName: string;
@@ -83,15 +102,25 @@ function parseJsonArray<T>(stdout: string): T[] {
 export async function resetData(opts: {
   apply: boolean;
   config: ResetConfig;
+  /** The owner's email, kept as the only admin of the access list. Checked like setup's (`ownerEmail`). */
+  owner: string | undefined;
   exec?: ExecLike;
   log?: (line: string) => void;
+  now?: () => number;
 }): Promise<{ exitCode: number }> {
   const log = opts.log ?? ((l: string) => console.log(l));
   const { config } = opts;
   const run = opts.exec ?? defaultExec;
   const exec: ExecLike = (args) => run([...args, "--config", config.configPath]);
+  const owner = opts.owner === undefined ? null : ownerEmail(opts.owner);
+  if (owner === null) {
+    // The given value is never echoed: it may be anything.
+    log("usage: --owner <email> is required, a plain address such as name@example.com; it stays the only admin of the access list");
+    return { exitCode: 64 };
+  }
+  const command = resetCommand(owner, (opts.now ?? Date.now)());
 
-  log(`d1 ${config.databaseName} (remote): ${RESET_SQL}`);
+  log(`d1 ${config.databaseName} (remote): ${RESET_SQL} then the owner as the only admin of the access list`);
   for (const b of KV_BINDINGS) log(`kv ${b} ${config.kv[b]} (remote): delete every key`);
   if (!opts.apply) {
     log("dry run: nothing was changed; pass --apply to run it");
@@ -116,12 +145,12 @@ export async function resetData(opts: {
     }
   }
 
-  const d1 = await exec(["d1", "execute", config.databaseName, "--remote", "--command", RESET_SQL]);
+  const d1 = await exec(["d1", "execute", config.databaseName, "--remote", "--command", command]);
   if (d1.code !== 0) {
     log(`d1 ${config.databaseName}: FAILED (exit ${d1.code})`);
     return { exitCode: 1 };
   }
-  log(`d1 ${config.databaseName}: rows deleted`);
+  log(`d1 ${config.databaseName}: rows deleted; the owner is the only admin of the access list`);
 
   for (const b of KV_BINDINGS) {
     const keys = await exec(["kv", "key", "list", "--namespace-id", config.kv[b], "--remote"]);
@@ -151,8 +180,14 @@ export async function resetData(opts: {
   return { exitCode: 0 };
 }
 
+/** The value after `--owner`, if any. */
+export function ownerArg(argv: readonly string[]): string | undefined {
+  const i = argv.indexOf("--owner");
+  return i < 0 ? undefined : argv[i + 1];
+}
+
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  resetData({ apply: process.argv.includes("--apply"), config: readResetConfig() })
+  resetData({ apply: process.argv.includes("--apply"), owner: ownerArg(process.argv), config: readResetConfig() })
     .then(({ exitCode }) => {
       process.exitCode = exitCode;
     })

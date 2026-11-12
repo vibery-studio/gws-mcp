@@ -3,7 +3,7 @@ import { Hono } from "hono";
 import { describe, expect, it } from "vitest";
 import { DEFAULT_NEXT, safeNext, startGoogleAuth } from "../../src/auth/google-flow";
 import { sha256Hex } from "../../src/auth/session";
-import { FAKE_CLIENT_ID, SERVICE_SCOPES } from "../../src/config";
+import { DEFAULT_CONNECT_SERVICES, FAKE_CLIENT_ID, GOOGLE_SERVICES, SERVICE_SCOPES } from "../../src/config";
 import { googleOAuth } from "../../src/google/oauth";
 import { openStore } from "../../src/store/db";
 import { webApp } from "../../src/web/app";
@@ -359,8 +359,17 @@ describe("first sign-in", () => {
     expect(connectUrl.searchParams.get("access_type")).toBe("offline");
     expect(connectUrl.searchParams.get("prompt")).toBe("consent");
     expect(connectUrl.searchParams.get("login_hint")).toBe(email);
-    const preset = Object.values(SERVICE_SCOPES[config.GOOGLE_SCOPE_PRESET]).flat();
-    expect(connectUrl.searchParams.get("scope")?.split(" ")).toEqual(expect.arrayContaining(["openid", "email", ...preset]));
+    const preset = SERVICE_SCOPES[config.GOOGLE_SCOPE_PRESET];
+    const oneClick = DEFAULT_CONNECT_SERVICES.flatMap((s) => preset[s]);
+    const asked = connectUrl.searchParams.get("scope")?.split(" ") ?? [];
+    expect([...new Set(asked)].sort()).toEqual([...new Set(["openid", "email", ...oneClick])].sort());
+    // The opt-in services are never part of a first sign-in: money, Workspace admin, Analytics and Tag Manager changes.
+    const optIn = GOOGLE_SERVICES.filter((s) => !DEFAULT_CONNECT_SERVICES.includes(s));
+    expect([...optIn].sort()).toEqual(["ads", "analyticsadmin", "groups", "tagmanageradmin", "tagmanageredit", "tagmanagerpublish"]);
+    for (const scope of optIn.flatMap((s) => preset[s])) expect(asked, scope).not.toContain(scope);
+    for (const banned of ["adwords", "analytics.edit", "tagmanager.edit.", "tagmanager.publish", "tagmanager.manage.", "tagmanager.delete.", "admin.directory.", "apps.groups."]) {
+      expect(asked.filter((scope) => scope.includes(banned)), banned).toEqual([]);
+    }
     expect(await sessionUser(browser)).toBe(userIdFor(sub));
     const [created] = await openStore(env).accounts.listForUser(userIdFor(sub));
     expect([created?.email, created?.status, created?.hasRefreshToken, created?.isDefault]).toEqual([email, "reconnect", false, true]);

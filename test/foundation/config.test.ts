@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  DEFAULT_CONNECT_SERVICES,
   FAKE_CLIENT_ID,
   FAKE_CLIENT_SECRET,
   GOOGLE_HOSTS,
@@ -181,11 +182,32 @@ describe("constants", () => {
         "forms.googleapis.com",
         "tasks.googleapis.com",
         "slides.googleapis.com",
+        "searchconsole.googleapis.com",
+        "analyticsdata.googleapis.com",
+        "analyticsadmin.googleapis.com",
+        "admin.googleapis.com",
+        "googleads.googleapis.com",
+        "tagmanager.googleapis.com",
       ].sort(),
     );
     const generatedHosts = new Set(generatedFns.flatMap((fn) => (fn.method ? [new URL(fn.method.rootUrl).hostname] : [])));
-    for (const host of generatedHosts) expect(GOOGLE_HOSTS as readonly string[]).toContain(host);
-    for (const host of ["forms.googleapis.com", "tasks.googleapis.com", "slides.googleapis.com"]) expect(generatedHosts.has(host)).toBe(true);
+    const identityHosts = ["accounts.google.com", "oauth2.googleapis.com", "openidconnect.googleapis.com"];
+    // Nothing more than the identity hosts and the generated root URLs: every allowed API host is one the SDK calls.
+    expect([...generatedHosts].sort()).toEqual(GOOGLE_HOSTS.filter((h) => !identityHosts.includes(h)).sort());
+    // Group settings use the shared www.googleapis.com root.
+    expect(generatedFns.find((fn) => fn.name === "groupsSettings.groups.get")?.method?.rootUrl).toBe("https://www.googleapis.com/");
+  });
+
+  it("connects in one click only the everyday services, never money, Workspace admin, or Analytics and Tag Manager changes", () => {
+    expect([...DEFAULT_CONNECT_SERVICES]).toEqual(["gmail", "drive", "calendar", "sheets", "docs", "forms", "tasks", "slides", "searchconsole", "analytics", "tagmanager"]);
+    expect(GOOGLE_SERVICES.filter((s) => !DEFAULT_CONNECT_SERVICES.includes(s))).toEqual([
+      "analyticsadmin",
+      "ads",
+      "groups",
+      "tagmanageredit",
+      "tagmanagerpublish",
+      "tagmanageradmin",
+    ]);
   });
 
   it("defines scopes for every v1 service in both presets, narrow by default", () => {
@@ -225,7 +247,41 @@ describe("grantedServices", () => {
       forms: false,
       tasks: false,
       slides: false,
+      searchconsole: false,
+      analytics: false,
+      analyticsadmin: false,
+      ads: false,
+      groups: false,
+      tagmanager: false,
+      tagmanageredit: false,
+      tagmanagerpublish: false,
+      tagmanageradmin: false,
     });
+  });
+
+  it.each(["narrow", "full"] as const)("asks the four Tag Manager levels their own scopes in the %s preset", (preset) => {
+    expect(SERVICE_SCOPES[preset].tagmanager).toEqual([`${G}tagmanager.readonly`]);
+    expect(SERVICE_SCOPES[preset].tagmanageredit).toEqual([`${G}tagmanager.edit.containers`]);
+    expect(SERVICE_SCOPES[preset].tagmanagerpublish).toEqual([`${G}tagmanager.edit.containerversions`, `${G}tagmanager.publish`]);
+    expect(SERVICE_SCOPES[preset].tagmanageradmin).toEqual([
+      `${G}tagmanager.manage.accounts`,
+      `${G}tagmanager.manage.users`,
+      `${G}tagmanager.delete.containers`,
+    ]);
+  });
+
+  it("asks for the marketing and groups scopes in both presets", () => {
+    const narrow = SERVICE_SCOPES.narrow;
+    const full = SERVICE_SCOPES.full;
+    expect(narrow.searchconsole).toEqual([`${G}webmasters.readonly`]);
+    expect(full.searchconsole).toEqual([`${G}webmasters`]);
+    for (const preset of [narrow, full]) {
+      expect(preset.analytics).toEqual([`${G}analytics.readonly`]);
+      expect(preset.analyticsadmin).toEqual([`${G}analytics.edit`]);
+      expect(preset.ads).toEqual([`${G}adwords`]);
+    }
+    expect(narrow.groups).toEqual([`${G}admin.directory.group.readonly`, `${G}admin.directory.group.member.readonly`, `${G}apps.groups.settings`]);
+    expect(full.groups).toEqual([`${G}admin.directory.group`, `${G}admin.directory.group.member`, `${G}apps.groups.settings`]);
   });
 
   it("counts a service only when every scope the connect flow asks for it is granted", () => {
@@ -258,7 +314,17 @@ describe("upstream host allowlist", () => {
     return calls;
   }
 
-  it.each(["forms.googleapis.com", "tasks.googleapis.com", "slides.googleapis.com"])("lets google mode call %s", async (host) => {
+  it.each([
+    "forms.googleapis.com",
+    "tasks.googleapis.com",
+    "slides.googleapis.com",
+    "searchconsole.googleapis.com",
+    "analyticsdata.googleapis.com",
+    "analyticsadmin.googleapis.com",
+    "admin.googleapis.com",
+    "googleads.googleapis.com",
+    "tagmanager.googleapis.com",
+  ])("lets google mode call %s", async (host) => {
     const calls = stubFetch();
     const t = createTransport({}, { GOOGLE_UPSTREAM: "google" });
     await t(`https://${host}/v1/x`, { method: "GET" });
@@ -276,6 +342,18 @@ describe("upstream host allowlist", () => {
     "http://slides.googleapis.com/v1/presentations/x",
     "https://f\u043erms.googleapis.com/v1/forms/x",
     "https://slides.google.com/v1/presentations/x",
+    "https://googleads.googleapis.com.evil.example/v23/customers:listAccessibleCustomers",
+    "https://evil-googleads.googleapis.com/v23/customers:listAccessibleCustomers",
+    "https://xadmin.googleapis.com/admin/directory/v1/groups",
+    "https://admin.googleapis.co/admin/directory/v1/groups",
+    "https://admin.google.com/admin/directory/v1/groups",
+    "https://analytics.googleapis.com/v1beta/properties/1:runReport",
+    "https://analyticsdata.googleapis.com.evil.example/v1beta/properties/1:runReport",
+    "https://searchconsole.googleapis.com@evil.example/webmasters/v3/sites",
+    "https://tagmanager.googleapis.com:8443/tagmanager/v2/accounts",
+    "http://tagmanager.googleapis.com/tagmanager/v2/accounts",
+    "https://tagmanager-googleapis.com/tagmanager/v2/accounts",
+    "https://t\u0430gmanager.googleapis.com/tagmanager/v2/accounts",
   ])("refuses the lookalike %s without calling fetch", async (url) => {
     const calls = stubFetch();
     const t = createTransport({}, { GOOGLE_UPSTREAM: "google" });

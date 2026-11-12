@@ -92,7 +92,138 @@ describe("committed SDK", () => {
   });
 
   it("records the pinned discovery revisions", () => {
-    expect(Object.keys(sdkManifest.discovery).sort()).toEqual(["calendar", "docs", "drive", "forms", "gmail", "sheets", "slides", "tasks"]);
+    expect(Object.keys(sdkManifest.discovery).sort()).toEqual([
+      "admin",
+      "analyticsadmin",
+      "analyticsdata",
+      "calendar",
+      "docs",
+      "drive",
+      "forms",
+      "gmail",
+      "googleads",
+      "groupssettings",
+      "searchconsole",
+      "sheets",
+      "slides",
+      "tagmanager",
+      "tasks",
+    ]);
+    expect(sdkManifest.discovery.admin).toMatch(/^directory_v1@/);
+    expect(sdkManifest.discovery.googleads).toMatch(/^v23@/);
     expect(sdkManifest.hash).toMatch(/^sha256:[0-9a-f]{64}$/);
+  });
+
+  it("generates every new service from its documents, with groups spanning two", () => {
+    const count = (service: string) => generatedFns.filter((f) => f.method?.service === service).length;
+    for (const service of ["searchconsole", "analytics", "analyticsadmin", "ads", "groups"]) expect(count(service), service).toBeGreaterThan(0);
+    expect(generatedFns.filter((f) => f.method?.service === "groups").map((f) => f.name.split(".")[0])).toEqual(
+      expect.arrayContaining(["directory", "groupsSettings"]),
+    );
+  });
+
+  it("scopes the directory to groups and members and ads to its reads plus the mutate family", () => {
+    const directory = generatedFns.filter((f) => f.name.startsWith("directory.")).map((f) => f.name);
+    expect(directory.length).toBeGreaterThan(0);
+    expect(directory.every((n) => n.startsWith("directory.groups.") || n.startsWith("directory.members."))).toBe(true);
+    expect(generatedFns.some((f) => f.name.startsWith("directory.users."))).toBe(false);
+    const ads = generatedFns.filter((f) => f.method?.service === "ads").map((f) => f.name);
+    for (const read of ["listAccessibleCustomers", "googleAds.search", "googleAds.searchStream"]) expect(ads).toContain(`googleads.customers.${read}`);
+    expect(ads.filter((n) => !n.endsWith(".mutate")).sort()).toEqual([
+      "googleads.customers.googleAds.search",
+      "googleads.customers.googleAds.searchStream",
+      "googleads.customers.listAccessibleCustomers",
+    ]);
+    expect(ads).toContain("googleads.customers.campaigns.mutate");
+    expect(ads).toContain("googleads.customers.googleAds.mutate");
+    expect(unsupportedReport).toContain("`directory.groups.*`, `directory.members.*`");
+    expect(unsupportedReport).toContain("`*.mutate`");
+  });
+
+  it("classifies the marketing reads as reads and every mutate and admin change as a write", () => {
+    for (const name of [
+      "webmasters.searchanalytics.query",
+      "searchconsole.urlInspection.index.inspect",
+      "analyticsdata.properties.runReport",
+      "analyticsdata.properties.batchRunReports",
+      "analyticsdata.properties.runRealtimeReport",
+      "analyticsdata.properties.runPivotReport",
+      "analyticsdata.properties.checkCompatibility",
+      "analyticsadmin.properties.runAccessReport",
+      "googleads.customers.googleAds.search",
+      "googleads.customers.googleAds.searchStream",
+      "googleads.customers.listAccessibleCustomers",
+    ]) {
+      expect(byName(name).effect, name).toBe("read");
+    }
+    for (const name of [
+      "webmasters.sitemaps.submit",
+      "webmasters.sitemaps.delete",
+      "analyticsdata.properties.audienceExports.create",
+      "analyticsadmin.properties.delete",
+      "directory.groups.delete",
+      "directory.members.delete",
+      "directory.members.insert",
+      "groupsSettings.groups.patch",
+    ]) {
+      expect(byName(name).effect, name).toBe("write");
+    }
+    const mutates = generatedFns.filter((f) => f.name.endsWith(".mutate"));
+    expect(mutates.length).toBeGreaterThan(50);
+    expect(mutates.every((f) => f.effect === "write")).toBe(true);
+  });
+
+  it("validates inputs and outputs of the marketing and groups methods", () => {
+    const cases: Array<[string, Record<string, unknown>, Record<string, unknown>]> = [
+      ["webmasters.sites.list", {}, { siteEntry: [{ siteUrl: "sc-domain:x.test", permissionLevel: "siteOwner" }] }],
+      ["webmasters.searchanalytics.query", { siteUrl: "sc-domain:x.test", requestBody: { startDate: "2026-11-01", endDate: "2026-11-07", dimensions: ["query"] } }, { rows: [{ keys: ["a"], clicks: 1 }] }],
+      ["analyticsdata.properties.runReport", { property: "properties/1", requestBody: { dimensions: [{ name: "city" }], metrics: [{ name: "sessions" }] } }, { rows: [], rowCount: 0 }],
+      ["analyticsadmin.accounts.list", {}, { accounts: [{ name: "accounts/1" }] }],
+      ["directory.groups.list", { domain: "x.test" }, { groups: [{ email: "g@x.test" }] }],
+      ["directory.members.list", { groupKey: "g@x.test" }, { members: [{ email: "m@x.test", role: "MEMBER" }] }],
+      ["groupsSettings.groups.get", { groupUniqueId: "g@x.test" }, { email: "g@x.test" }],
+      ["googleads.customers.listAccessibleCustomers", {}, { resourceNames: ["customers/1"] }],
+      ["googleads.customers.googleAds.search", { customerId: "1", requestBody: { query: "SELECT campaign.id FROM campaign" } }, { results: [], totalResultsCount: "0" }],
+    ];
+    for (const [name, input, output] of cases) {
+      const fn = byName(name);
+      expect(fn.input.safeParse(input).success, name).toBe(true);
+      expect(fn.input.safeParse({ ...input, bogus: 1 }).success, name).toBe(false);
+      expect(fn.output.safeParse(output).success, name).toBe(true);
+    }
+    expect(byName("googleads.customers.googleAds.search").input.safeParse({}).success).toBe(false);
+  });
+
+  it("lists a method whose parameter collides with a reserved input key as unsupported", () => {
+    expect(unsupportedReport).toContain("| analyticsadmin.accounts.searchChangeHistoryEvents | parameter name account collides with a reserved input key |");
+    expect(generatedFns.some((f) => f.name === "analyticsadmin.accounts.searchChangeHistoryEvents")).toBe(false);
+  });
+
+  it("generates the whole Tag Manager API, reading folder entities and writing every change", () => {
+    const tm = generatedFns.filter((f) => f.method?.service === "tagmanager");
+    expect(tm.length).toBeGreaterThan(100);
+    expect(sdkManifest.discovery.tagmanager).toMatch(/^v2@/);
+    expect(tm.every((f) => f.name.startsWith("tagmanager.accounts."))).toBe(true);
+    for (const name of [
+      "tagmanager.accounts.list",
+      "tagmanager.accounts.containers.workspaces.getStatus",
+      "tagmanager.accounts.containers.workspaces.tags.list",
+      "tagmanager.accounts.containers.workspaces.folders.entities",
+    ]) {
+      expect(byName(name).effect, name).toBe("read");
+    }
+    for (const name of [
+      "tagmanager.accounts.containers.workspaces.tags.create",
+      "tagmanager.accounts.containers.workspaces.create_version",
+      "tagmanager.accounts.containers.versions.publish",
+      "tagmanager.accounts.containers.delete",
+      "tagmanager.accounts.user_permissions.update",
+    ]) {
+      expect(byName(name).effect, name).toBe("write");
+    }
+    expect(byName("tagmanager.accounts.containers.versions.publish").method?.scopes).toEqual(["https://www.googleapis.com/auth/tagmanager.publish"]);
+    expect(tm.filter((f) => f.method?.httpMethod === "POST" && f.effect === "read").map((f) => f.name)).toEqual([
+      "tagmanager.accounts.containers.workspaces.folders.entities",
+    ]);
   });
 });

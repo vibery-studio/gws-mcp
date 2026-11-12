@@ -48,7 +48,7 @@ async function oldAccount(prefix: string, scopes: readonly string[]) {
   return { a, auth };
 }
 
-const OLD_SERVICES = { gmail: true, drive: true, calendar: true, sheets: true, docs: true, forms: false, tasks: false, slides: false };
+const OLD_SERVICES = { gmail: true, drive: true, calendar: true, sheets: true, docs: true, forms: false, tasks: false, slides: false, searchconsole: false, analytics: false, analyticsadmin: false, ads: false, groups: false, tagmanager: false, tagmanageredit: false, tagmanagerpublish: false, tagmanageradmin: false };
 
 describe("an account connected before Forms, Tasks and Slides existed", () => {
   it("is listed with the new services false and the old ones true, ignoring a scope from a future preset", async () => {

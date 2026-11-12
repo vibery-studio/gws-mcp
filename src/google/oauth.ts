@@ -236,6 +236,9 @@ export function createGoogleOAuth(config: Config, secrets: SecretSource, transpo
       const parsed = UserinfoResponse.safeParse(await readJson(res));
       if (!parsed.success) throw upstream("Google userinfo endpoint returned an unexpected response", { status: res.status });
       if (parsed.data.email_verified !== true) throw upstream("Google account email is not verified", { status: res.status });
+      // Before lower-casing: Unicode case folding turns some characters into ASCII (U+212A KELVIN SIGN becomes "k"),
+      // which would let one address pass as another person's.
+      if (!/^[\x21-\x7e]+$/.test(parsed.data.email)) throw upstream("Google account email is not plain ASCII", { status: res.status });
       return { sub: parsed.data.sub, email: parsed.data.email.toLowerCase() };
     },
   };

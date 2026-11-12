@@ -1,0 +1,42 @@
+{
+  "id": "groups-members-list",
+  "source": "synthesized",
+  "provenance": "Discovery admin directory_v1 rev 20261109 Members; served by the fake seeded with preset \"default\" for alice@fake.test",
+  "request": {
+    "method": "GET",
+    "path": "/admin.googleapis.com/admin/directory/v1/groups/seed-group-team/members"
+  },
+  "response": {
+    "status": 200,
+    "headers": {},
+    "body": {
+      "kind": "admin#directory#members",
+      "members": [
+        {
+          "kind": "admin#directory#member",
+          "id": "10800000000000000001",
+          "email": "alice@fake.test",
+          "role": "OWNER",
+          "type": "USER",
+          "status": "ACTIVE"
+        },
+        {
+          "kind": "admin#directory#member",
+          "id": "10800000000000000002",
+          "email": "dana@fake.test",
+          "role": "MEMBER",
+          "type": "USER",
+          "status": "ACTIVE"
+        },
+        {
+          "kind": "admin#directory#member",
+          "id": "10800000000000000003",
+          "email": "erin@fake.test",
+          "role": "MEMBER",
+          "type": "USER",
+          "status": "ACTIVE"
+        }
+      ]
+    }
+  }
+}

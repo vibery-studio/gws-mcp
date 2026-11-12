@@ -9,12 +9,15 @@
 //     written into wrangler.jsonc in place, comments kept. Nothing for the fake Google or the E2E Worker is created.
 //     A binding that already holds a real (non-placeholder) id is never repointed: unless that id is exactly the
 //     resource found by name, the run stops (exit 2) before creating, migrating, setting or deploying anything.
-//  3. Migrations: applied to the remote D1.
+//  3. Migrations: applied to the remote D1. Then the access list (who may use this gws-mcp, kept only in D1): when it is
+//     empty, the owner's email is asked for (a prompt, or the next non-empty stdin line) and inserted as the first
+//     admin, so nobody else can become admin by signing in first. A list that already has rules is never touched.
 //  4. Secrets, each value over wrangler's stdin, never in argv, output or a file. They come before the deploy, which
 //     fails while a `secrets.required` name is unset (wrangler creates the Worker on the first put). TOKEN_ENC_KEY is
 //     generated (32 random bytes) only when the Worker has none; an existing one is never replaced, since every stored
 //     Google token depends on it. GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET are set together when either is missing,
-//     read from a hidden prompt, or from the first two non-empty lines of stdin when stdin is not a terminal.
+//     read from a hidden prompt, or from the next two non-empty lines of stdin when stdin is not a terminal (after the
+//     owner's email line when that was asked for).
 //  5. Deploy: the top level only (`--env=""`).
 //  6. Prints the Google redirect URI to register: PUBLIC_BASE_URL when the config sets it, else the workers.dev URL
 //     wrangler reports for the deploy.
@@ -26,6 +29,7 @@
 import { spawn as nodeSpawn } from "node:child_process";
 import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 import { type SpawnLike, generateKey, runWrangler, scrub, secretNames } from "./put-secrets";
 import { CONFIGS, ROOT, configVar, jsoncField, jsoncValue, parseJsoncTree, type JsoncNode } from "./wrangler";
@@ -58,6 +62,8 @@ export interface SetupDeps {
   wrangler: (args: readonly string[], stdin?: string) => Promise<WranglerResult>;
   /** Reads the Google client from a hidden prompt or stdin; null when nothing was given. Values are never logged. */
   readGoogleClient: () => Promise<GoogleClient | null>;
+  /** Reads the owner's email (the first admin) from a prompt or stdin; null when nothing was given. */
+  readOwnerEmail: () => Promise<string | null>;
   generateKey: () => string;
   log: (line: string) => void;
 }
@@ -77,6 +83,36 @@ export function invalidClientFields(client: GoogleClient): string[] {
     ...(GOOGLE_CLIENT_ID.test(client.id) ? [] : ["GOOGLE_CLIENT_ID (expected <id>.apps.googleusercontent.com)"]),
     ...(GOOGLE_CLIENT_SECRET.test(client.secret) ? [] : ["GOOGLE_CLIENT_SECRET (expected 8-200 printable characters, no spaces)"]),
   ];
+}
+
+/**
+ * The owner's email, lower-cased, or null. Stricter than the server's own rule check: `wrangler d1 execute --command`
+ * takes no bound parameters, so the value is spliced into SQL and must never carry a quote, backslash, semicolon,
+ * whitespace or anything else outside a plain address.
+ */
+export function ownerEmail(input: string): string | null {
+  // Before lower-casing: Unicode case folding turns some characters into ASCII (U+212A KELVIN SIGN becomes "k").
+  if (!/^[\x21-\x7e]+$/.test(input.trim())) return null;
+  const e = input.trim().toLowerCase();
+  if (/['"\\;\s]/.test(e)) return null;
+  return /^[a-z0-9._+-]{1,64}@[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/.test(e) && e.length <= 254 ? e : null;
+}
+
+/** The SQL that makes `email` (already checked by `ownerEmail`) the first admin, only while the list is empty, with its audit row. */
+export function ownerInsertSql(email: string, now: number): string {
+  if (ownerEmail(email) !== email) throw new Error("owner email must be checked before it reaches SQL");
+  return [
+    `INSERT INTO access_rules (pattern, role, note, created_by, created_at) SELECT '${email}', 'admin', NULL, 'setup', ${now} WHERE NOT EXISTS (SELECT 1 FROM access_rules);`,
+    `INSERT INTO access_audit (id, ts, actor, via, action, pattern_kind, pattern, role) SELECT lower(hex(randomblob(16))), ${now}, 'setup', 'setup', 'add', 'email', '${email}', 'admin' WHERE EXISTS (SELECT 1 FROM access_rules WHERE pattern = '${email}' AND created_by = 'setup') AND NOT EXISTS (SELECT 1 FROM access_audit WHERE via = 'setup' AND pattern = '${email}');`,
+  ].join(" ");
+}
+
+/** The number of access rules in `wrangler d1 execute --json` output, or null when it holds none. */
+export function ruleCount(stdout: string): number | null {
+  const first = jsonArray(stdout)?.[0];
+  const results = typeof first === "object" && first !== null ? (first as Record<string, unknown>).results : undefined;
+  const row = Array.isArray(results) ? (results[0] as Record<string, unknown> | undefined) : undefined;
+  return typeof row?.n === "number" && Number.isInteger(row.n) && row.n >= 0 ? row.n : null;
 }
 
 /** The JSON array wrangler printed (it may print a banner first). */
@@ -320,6 +356,34 @@ export async function setup(prefix: string, deps: SetupDeps): Promise<{ exitCode
   if (migrated.code !== 0) return fail("could not apply the D1 migrations", migrated);
   log(`d1 ${prefix}: migrations applied`);
 
+  // 3b. The access list's first admin, only while the list is empty (one conditional insert, so re-running or racing a
+  // first sign-in can never add a second "first" admin).
+  const counted = await wrangler(["d1", "execute", "DB", "--remote", "--json", "--command", "SELECT COUNT(*) AS n FROM access_rules"]);
+  if (counted.code !== 0) return fail("could not read the access list", counted);
+  const rules = ruleCount(counted.stdout);
+  if (rules === null) {
+    log("FAILED: wrangler returned no rule count for the access list");
+    return { exitCode: 1 };
+  }
+  if (rules > 0) {
+    log(`access list: ${rules} rule${rules === 1 ? "" : "s"} present, kept`);
+  } else {
+    log("access list: empty; enter the owner's email (it becomes the first admin, who decides who else can use this)");
+    const given = await deps.readOwnerEmail();
+    if (given === null || given.trim() === "") {
+      log("BLOCKED: no owner email was given; run setup again with it (prompt, or a stdin line). Until then the first person to sign in would become admin");
+      return { exitCode: 2 };
+    }
+    const email = ownerEmail(given);
+    if (email === null) {
+      log("BLOCKED: the owner email must be a plain address such as name@example.com; nothing was added");
+      return { exitCode: 2 };
+    }
+    const inserted = await wrangler(["d1", "execute", "DB", "--remote", "--command", ownerInsertSql(email, Date.now())]);
+    if (inserted.code !== 0) return fail("could not add the owner to the access list", inserted);
+    log("access list: owner added as admin");
+  }
+
   // 4. Secrets: names are listed (wrangler never returns values); nothing is replaced. A Worker that does not exist
   // yet has none: wrangler reports exactly that (from Cloudflare's not-found error code), and any other failure stops.
   const listed = await wrangler(["secret", "list", "--name", prefix, "--format", "json"]);
@@ -411,11 +475,35 @@ function promptHidden(question: string): Promise<string> {
   });
 }
 
+/** Non-empty trimmed stdin lines, read once and handed out in the order setup asks its questions. */
+let stdinLines: string[] | undefined;
+function nextStdinLine(): string | undefined {
+  stdinLines ??= readFileSync(0, "utf8")
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+  return stdinLines.shift();
+}
+
 async function readGoogleClientFromUser(): Promise<GoogleClient | null> {
-  if (!process.stdin.isTTY) return parseClientLines(readFileSync(0, "utf8"));
+  if (!process.stdin.isTTY) {
+    const id = nextStdinLine();
+    const secret = nextStdinLine();
+    return id !== undefined && secret !== undefined ? { id, secret } : null;
+  }
   const id = (await promptHidden("Google OAuth client id (hidden): ")).trim();
   const secret = (await promptHidden("Google OAuth client secret (hidden): ")).trim();
   return id && secret ? { id, secret } : null;
+}
+
+async function readOwnerEmailFromUser(): Promise<string | null> {
+  if (!process.stdin.isTTY) return nextStdinLine() ?? null;
+  const rl = createInterface({ input: process.stdin, output: process.stderr });
+  try {
+    return (await rl.question("Owner email (the first admin): ")).trim() || null;
+  } finally {
+    rl.close();
+  }
 }
 
 async function main(): Promise<void> {
@@ -434,6 +522,7 @@ async function main(): Promise<void> {
     root: ROOT,
     wrangler: (args, stdin) => runWrangler(spawn, args, stdin ?? ""),
     readGoogleClient: readGoogleClientFromUser,
+    readOwnerEmail: readOwnerEmailFromUser,
     generateKey,
     log: (line) => console.log(line),
   });

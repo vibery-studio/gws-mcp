@@ -464,7 +464,8 @@ describe("/connections for an account connected before Forms, Tasks and Slides e
   it("reports each new service as missing, and connecting one for that account adds it", async () => {
     const s = await oldAccountSignedIn("web-later");
     const missing = async () => (await loadReadModel(env, s.userId)).account(s.account.id)?.missingServices;
-    expect(await missing()).toEqual(["forms", "tasks", "slides"]);
+    const later = ["searchconsole", "analytics", "analyticsadmin", "ads", "groups", "tagmanager", "tagmanageredit", "tagmanagerpublish", "tagmanageradmin"];
+    expect(await missing()).toEqual(["forms", "tasks", "slides", ...later]);
 
     const form = serviceForm(s.csrf, s.account.id, "forms");
     const res = await post(s.browser, form.action, form.fields);
@@ -477,7 +478,7 @@ describe("/connections for an account connected before Forms, Tasks and Slides e
     // Consenting adds the service and keeps the earlier grant; it is no longer missing.
     expect((await s.browser.fetch(await pickAtFake(google.toString(), s.account.email))).status).toBe(302);
     expect((await store.accounts.get(s.userId, s.account.id))?.scopes).toEqual(expect.arrayContaining([...FIVE_SERVICES, `${G}forms.body`]));
-    expect(await missing()).toEqual(["tasks", "slides"]);
+    expect(await missing()).toEqual(["tasks", "slides", ...later]);
   });
 
   it("refuses the per-service connect POST without the session's CSRF token or from another site, starting nothing", async () => {

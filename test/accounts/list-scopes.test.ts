@@ -53,7 +53,7 @@ describe("accounts.list", () => {
           isDefault: true,
           status: "active",
           scopes: [...a.account.scopes],
-          services: { gmail: true, drive: false, calendar: false, sheets: false, docs: false, forms: false, tasks: false, slides: false },
+          services: { gmail: true, drive: false, calendar: false, sheets: false, docs: false, forms: false, tasks: false, slides: false, searchconsole: false, analytics: false, analyticsadmin: false, ads: false, groups: false, tagmanager: false, tagmanageredit: false, tagmanagerpublish: false, tagmanageradmin: false },
         },
       ],
       hiddenCount: 2,
@@ -82,7 +82,7 @@ describe("accounts.scopes", () => {
     const expected = {
       email: a.account.email,
       scopes: [...a.account.scopes],
-      services: { gmail: true, drive: false, calendar: false, sheets: false, docs: false, forms: false, tasks: false, slides: false },
+      services: { gmail: true, drive: false, calendar: false, sheets: false, docs: false, forms: false, tasks: false, slides: false, searchconsole: false, analytics: false, analyticsadmin: false, ads: false, groups: false, tagmanager: false, tagmanageredit: false, tagmanagerpublish: false, tagmanageradmin: false },
     };
     expect(valueOf(await call(client, "accounts.scopes", { account: "work" }).result)).toEqual(expected);
     expect(valueOf(await call(client, "accounts.scopes", {}).result)).toEqual(expected);

@@ -29,7 +29,7 @@ export default defineConfig({
         test: {
           name: "node",
           environment: "node",
-          include: ["test/node/**/*.test.ts"],
+          include: ["test/node/**/*.test.ts", "test/node-host/**/*.test.ts"],
         },
       },
       {
@@ -67,8 +67,13 @@ export default defineConfig({
         ],
         test: {
           name: "workers",
+          // Reuse each test worker across files. With per-file isolation every file re-fetched the whole
+          // generated SDK (2.5 MB) through the pool's main-thread serializer, stalling that thread for
+          // seconds and timing out unrelated short tests under load. Parallel workers still get separate
+          // storage; files run one after another in a worker share it, so a test asserts only its own rows.
+          isolate: false,
           include: ["test/**/*.test.ts"],
-          exclude: ["test/node/**", "test/local/**"],
+          exclude: ["test/node/**", "test/node-host/**", "test/local/**"],
           setupFiles: ["./test/setup/apply-migrations.ts"],
         },
       },

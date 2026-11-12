@@ -76,12 +76,25 @@ describe("registry consistency", () => {
     for (const id of POST_READS) expect(reg.get(id)).toMatchObject({ effect: "read", method: { httpMethod: "POST", effect: "read" } });
   });
 
-  it("names exactly the four read-only POST methods", () => {
+  it("names exactly the read-only POST methods", () => {
     expect([...POST_READS].sort()).toEqual([
+      "analyticsadmin.accounts.runAccessReport",
+          "analyticsadmin.properties.runAccessReport",
+      "analyticsdata.properties.batchRunPivotReports",
+      "analyticsdata.properties.batchRunReports",
+      "analyticsdata.properties.checkCompatibility",
+      "analyticsdata.properties.runPivotReport",
+      "analyticsdata.properties.runRealtimeReport",
+      "analyticsdata.properties.runReport",
       "calendar.freebusy.query",
+      "googleads.customers.googleAds.search",
+      "googleads.customers.googleAds.searchStream",
+      "searchconsole.urlInspection.index.inspect",
       "sheets.spreadsheets.developerMetadata.search",
       "sheets.spreadsheets.getByDataFilter",
       "sheets.spreadsheets.values.batchGetByDataFilter",
+      "tagmanager.accounts.containers.workspaces.folders.entities",
+      "webmasters.searchanalytics.query",
     ]);
   });
 

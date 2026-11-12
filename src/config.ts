@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { DESTRUCTIVE_REASON_WORDS, type DestructiveReason } from "./core/destructive";
 import { GwsError } from "./errors";
 
 /** Fake OAuth client used in `fake` upstream mode, so the real Google client secret never reaches the fake. */
@@ -17,11 +18,37 @@ export const GOOGLE_HOSTS = [
   "forms.googleapis.com",
   "tasks.googleapis.com",
   "slides.googleapis.com",
+  "searchconsole.googleapis.com",
+  "analyticsdata.googleapis.com",
+  "analyticsadmin.googleapis.com",
+  "admin.googleapis.com",
+  "googleads.googleapis.com",
+  "tagmanager.googleapis.com",
 ] as const;
 export type GoogleHost = (typeof GOOGLE_HOSTS)[number];
 
-export const GOOGLE_SERVICES = ["gmail", "drive", "calendar", "sheets", "docs", "forms", "tasks", "slides"] as const;
+export const GOOGLE_SERVICES = ["gmail", "drive", "calendar", "sheets", "docs", "forms", "tasks", "slides", "searchconsole", "analytics", "analyticsadmin", "ads", "groups", "tagmanager", "tagmanageredit", "tagmanagerpublish", "tagmanageradmin"] as const;
 export type GoogleService = (typeof GOOGLE_SERVICES)[number];
+
+/**
+ * The services a one-click connect asks for: a new user's first sign-in, "Add Google account" and the local
+ * `connect` without `--services`. Everything else is opt-in, added deliberately per account: Google Ads (can
+ * spend money), Google Groups (Workspace admins only), Analytics editing, and Tag Manager editing,
+ * publishing and administration (they change a live website or who can use it).
+ */
+export const DEFAULT_CONNECT_SERVICES: readonly GoogleService[] = [
+  "gmail",
+  "drive",
+  "calendar",
+  "sheets",
+  "docs",
+  "forms",
+  "tasks",
+  "slides",
+  "searchconsole",
+  "analytics",
+  "tagmanager",
+];
 
 export const SCOPE_PRESETS = ["narrow", "full"] as const;
 export type ScopePreset = (typeof SCOPE_PRESETS)[number];
@@ -39,6 +66,15 @@ export const SERVICE_SCOPES: Readonly<Record<ScopePreset, Readonly<Record<Google
     forms: [`${G}forms.body`, `${G}forms.responses.readonly`],
     tasks: [`${G}tasks`],
     slides: [`${G}presentations`],
+    searchconsole: [`${G}webmasters.readonly`],
+    analytics: [`${G}analytics.readonly`],
+    analyticsadmin: [`${G}analytics.edit`],
+    ads: [`${G}adwords`],
+    groups: [`${G}admin.directory.group.readonly`, `${G}admin.directory.group.member.readonly`, `${G}apps.groups.settings`],
+    tagmanager: [`${G}tagmanager.readonly`],
+    tagmanageredit: [`${G}tagmanager.edit.containers`],
+    tagmanagerpublish: [`${G}tagmanager.edit.containerversions`, `${G}tagmanager.publish`],
+    tagmanageradmin: [`${G}tagmanager.manage.accounts`, `${G}tagmanager.manage.users`, `${G}tagmanager.delete.containers`],
   },
   full: {
     gmail: ["https://mail.google.com/"],
@@ -49,6 +85,15 @@ export const SERVICE_SCOPES: Readonly<Record<ScopePreset, Readonly<Record<Google
     forms: [`${G}forms.body`, `${G}forms.responses.readonly`],
     tasks: [`${G}tasks`],
     slides: [`${G}presentations`],
+    searchconsole: [`${G}webmasters`],
+    analytics: [`${G}analytics.readonly`],
+    analyticsadmin: [`${G}analytics.edit`],
+    ads: [`${G}adwords`],
+    groups: [`${G}admin.directory.group`, `${G}admin.directory.group.member`, `${G}apps.groups.settings`],
+    tagmanager: [`${G}tagmanager.readonly`],
+    tagmanageredit: [`${G}tagmanager.edit.containers`],
+    tagmanagerpublish: [`${G}tagmanager.edit.containerversions`, `${G}tagmanager.publish`],
+    tagmanageradmin: [`${G}tagmanager.manage.accounts`, `${G}tagmanager.manage.users`, `${G}tagmanager.delete.containers`],
   },
 };
 
@@ -131,6 +176,11 @@ const ConfigSchema = z
     UPSTREAM_CONCURRENCY: limit(4, 6),
     /** One SDK call's input from the sandbox, measured before the dispatcher walks it; sized for media uploads. */
     CALL_INPUT_MAX_BYTES: limit(5_000_000, 32_000_000),
+    /**
+     * Which destructive reasons need a person's approval (`off`, or a comma list); parsed by `parseHumanApproval`. A
+     * list is the already parsed value of a loaded config fed back in.
+     */
+    GWS_HUMAN_APPROVAL: z.union([z.string(), z.array(z.string())]).optional(),
   })
   .superRefine((c, ctx) => {
     if (c.GOOGLE_UPSTREAM === "fake" && c.FAKE_GOOGLE_PUBLIC_URL === undefined) {
@@ -144,15 +194,75 @@ export type ConfigKey = (typeof CONFIG_KEYS)[number];
 
 export type ConfigEnv = { readonly [K in ConfigKey]?: unknown };
 
-export type Config = z.output<typeof ConfigSchema> & {
+/**
+ * Destructive reasons a person may be asked to approve: every reason a Google request can carry. `disconnect` is
+ * left out because it is never a Google request (it is the accounts capability), so no approval could guard it.
+ */
+export type HumanApprovalReason = Exclude<DestructiveReason, "disconnect">;
+export const HUMAN_APPROVAL_REASONS: readonly HumanApprovalReason[] = (Object.keys(DESTRUCTIVE_REASON_WORDS) as DestructiveReason[]).filter(
+  (r): r is HumanApprovalReason => r !== "disconnect",
+);
+
+/** The reasons that need a person's approval on a web target unless GWS_HUMAN_APPROVAL says otherwise. */
+export const DEFAULT_HUMAN_APPROVAL: readonly HumanApprovalReason[] = ["spend", "public-share", "owner-transfer", "permission-change", "publish"];
+
+/** Where the config is loaded: a web target (Workers, the Node host) or the local stdio server, which has no web page. */
+export type ConfigRuntime = "web" | "local";
+
+function isHumanApprovalReason(value: string): value is HumanApprovalReason {
+  return (HUMAN_APPROVAL_REASONS as readonly string[]).includes(value);
+}
+
+/**
+ * GWS_HUMAN_APPROVAL: `off` (an empty list), or a comma list of reasons. Unset or blank is the default: the
+ * DEFAULT_HUMAN_APPROVAL list on a web target, `off` on the local server. The local server has no page where a person
+ * could approve, so any other value there is refused. A list (a loaded config's own value) is checked the same way,
+ * empty meaning off. Errors never echo the value.
+ */
+export function parseHumanApproval(raw: unknown, runtime: ConfigRuntime): readonly HumanApprovalReason[] {
+  let items: string[];
+  if (Array.isArray(raw)) {
+    items = raw.map((r) => (typeof r === "string" ? r : ""));
+  } else if (raw === undefined || typeof raw === "string") {
+    const text = (raw ?? "").trim().toLowerCase();
+    if (text === "") return runtime === "web" ? DEFAULT_HUMAN_APPROVAL : [];
+    if (text === "off") return [];
+    items = text.split(",").map((s) => s.trim());
+  } else {
+    throw humanApprovalInvalid();
+  }
+  if (items.length === 0) return [];
+  if (items.some((r) => !isHumanApprovalReason(r))) throw humanApprovalInvalid();
+  if (runtime === "local") {
+    throw new GwsError(
+      "GWS_INTERNAL",
+      "GWS_HUMAN_APPROVAL can only be off on this computer: the local gws-mcp has no web page where a person could approve a plan. Remove the setting, or set it to off",
+      { details: { keys: ["GWS_HUMAN_APPROVAL"] } },
+    );
+  }
+  return [...new Set(items as HumanApprovalReason[])];
+}
+
+function humanApprovalInvalid(): GwsError {
+  return new GwsError("GWS_INTERNAL", `invalid config: GWS_HUMAN_APPROVAL must be off or a comma list of these reasons: ${HUMAN_APPROVAL_REASONS.join(", ")}`, {
+    details: { keys: ["GWS_HUMAN_APPROVAL"] },
+  });
+}
+
+export type Config = Omit<z.output<typeof ConfigSchema>, "GWS_HUMAN_APPROVAL"> & {
+  /** The destructive reasons whose steps need a person's approval before they run; empty when off. */
+  GWS_HUMAN_APPROVAL: readonly HumanApprovalReason[];
   /** Google OAuth redirect URI registered for this deployment. */
   redirectUri: string;
   /** Canonical MCP resource (token audience). */
   mcpResource: string;
 };
 
-/** Parses and validates Worker vars. Errors name the offending keys only, never values. */
-export function loadConfig(env: ConfigEnv): Config {
+/**
+ * Parses and validates the config vars of `runtime` (a web target unless told otherwise). Errors name the offending
+ * keys only, never values.
+ */
+export function loadConfig(env: ConfigEnv, runtime: ConfigRuntime = "web"): Config {
   const raw: Record<string, unknown> = {};
   for (const key of CONFIG_KEYS) raw[key] = env[key];
   const parsed = ConfigSchema.safeParse(raw);
@@ -161,7 +271,8 @@ export function loadConfig(env: ConfigEnv): Config {
     throw new GwsError("GWS_INTERNAL", `invalid config: ${keys.join(", ")}`, { details: { keys } });
   }
   const c = parsed.data;
-  return { ...c, redirectUri: `${c.PUBLIC_BASE_URL}/google/callback`, mcpResource: `${c.PUBLIC_BASE_URL}/mcp` };
+  const humanApproval = parseHumanApproval(c.GWS_HUMAN_APPROVAL, runtime);
+  return { ...c, GWS_HUMAN_APPROVAL: humanApproval, redirectUri: `${c.PUBLIC_BASE_URL}/google/callback`, mcpResource: `${c.PUBLIC_BASE_URL}/mcp` };
 }
 
 /**

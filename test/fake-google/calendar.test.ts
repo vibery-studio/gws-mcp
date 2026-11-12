@@ -4,6 +4,8 @@ import calendarGet from "../../fake-google/fixtures/calendar/calendars-get.json"
 import calendarListList from "../../fake-google/fixtures/calendar/calendar-list-list.json";
 import eventsInsert from "../../fake-google/fixtures/calendar/events-insert.json";
 import eventsList from "../../fake-google/fixtures/calendar/events-list.json";
+import aclInsert from "../../fake-google/fixtures/calendar/acl-insert.json";
+import freeBusyQuery from "../../fake-google/fixtures/calendar/freebusy-query.json";
 import { parseFixture, type Fixture } from "../../fake-google/src/fixtures";
 import { SEED_NOW, routes } from "../../fake-google/src/routes/calendar";
 import { loadConfig } from "../../src/config";
@@ -58,6 +60,11 @@ function outputSchema(fn: string) {
   return def.output;
 }
 
+const FREEBUSY_SCOPE = `${G}calendar.freebusy`;
+const ACL_SCOPE = `${G}calendar.acls`;
+const post = (token: string, path: string, body: unknown) =>
+  api(token, `${BASE}${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+
 const SAIGON_TODAY = { timeMin: "2026-11-08T17:00:00.000Z", timeMax: "2026-11-09T17:00:00.000Z" };
 
 describe("scopes", () => {
@@ -68,6 +75,12 @@ describe("scopes", () => {
     { fn: "calendar.events.list", method: "GET", path: `${BASE}/calendars/primary/events` },
     { fn: "calendar.events.insert", method: "POST", path: `${BASE}/calendars/primary/events` },
     { fn: "calendar.events.delete", method: "DELETE", path: `${BASE}/calendars/primary/events/e1` },
+    { fn: "calendar.events.get", method: "GET", path: `${BASE}/calendars/primary/events/e1` },
+    { fn: "calendar.events.patch", method: "PATCH", path: `${BASE}/calendars/primary/events/e1` },
+    { fn: "calendar.events.move", method: "POST", path: `${BASE}/calendars/primary/events/e1/move` },
+    { fn: "calendar.freebusy.query", method: "POST", path: `${BASE}/freeBusy` },
+    { fn: "calendar.acl.insert", method: "POST", path: `${BASE}/calendars/primary/acl` },
+    { fn: "calendar.acl.delete", method: "DELETE", path: `${BASE}/calendars/primary/acl/user:a@fake.test` },
   ] as const;
 
   it.each(ROUTES.map((r) => [`${r.method} ${r.path}`, r] as const))("%s requires exactly the method's Discovery scopes", (_name, r) => {
@@ -220,8 +233,122 @@ describe("events.insert and events.delete", () => {
   });
 });
 
+describe("events.get, patch and move", () => {
+  it("reads one event and 404s for an unknown one", async () => {
+    const { token } = await account([EVENTS_SCOPE]);
+    const res = await api(token, `${BASE}/calendars/primary/events/seed-evt-today-standup`);
+    expect(res.status).toBe(200);
+    const event = (await res.json()) as EventView;
+    expect(event).toMatchObject({ id: "seed-evt-today-standup", summary: "Standup" });
+    expect(outputSchema("calendar.events.get").safeParse(event).success).toBe(true);
+    expect((await api(token, `${BASE}/calendars/primary/events/nothere`)).status).toBe(404);
+    expect((await api(token, `${BASE}/calendars/other@fake.test/events/seed-evt-today-standup`)).status).toBe(404);
+  });
+
+  it("patches only the fields it is given", async () => {
+    const { email, token } = await account([EVENTS_SCOPE]);
+    const res = await api(token, `${BASE}/calendars/primary/events/seed-evt-today-standup`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ location: "Room 2", attendees: [{ email: "bob@fake.test", responseStatus: "declined" }] }),
+    });
+    expect(res.status).toBe(200);
+    const stored = (await fake.state(email)).resources[`calendar:event:${email}:seed-evt-today-standup`] as EventView;
+    expect(stored).toMatchObject({ summary: "Standup", location: "Room 2", attendees: [{ email: "bob@fake.test", responseStatus: "declined" }] });
+    expect(outputSchema("calendar.events.patch").safeParse(await res.json()).success).toBe(true);
+    expect((await api(token, `${BASE}/calendars/primary/events/nothere`, { method: "PATCH", body: "{}" })).status).toBe(404);
+  });
+
+  it("moves an event to the account's own calendar only", async () => {
+    const { email, token } = await account([EVENTS_SCOPE]);
+    const move = (destination: string) => post(token, `/calendars/primary/events/seed-evt-today-standup/move?destination=${encodeURIComponent(destination)}`, {});
+    expect((await move(email)).status).toBe(200);
+    expect((await move("team@group.calendar.google.com")).status).toBe(404);
+    expect((await post(token, "/calendars/primary/events/seed-evt-today-standup/move", {})).status).toBe(400);
+  });
+});
+
+describe("freeBusy", () => {
+  const query = (token: string, body: unknown) => post(token, "/freeBusy", body);
+  interface Busy {
+    calendars: Record<string, { busy: Array<{ start: string; end: string }>; errors?: unknown[] }>;
+  }
+
+  it("lists the busy spans inside the window, merged, with an all-day event busy all day", async () => {
+    const { token } = await account([FREEBUSY_SCOPE]);
+    const res = await query(token, { timeMin: "2026-11-09T01:00:00Z", timeMax: "2026-11-09T11:00:00Z", items: [{ id: "primary" }] });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Busy;
+    expect(outputSchema("calendar.freebusy.query").safeParse(body).success).toBe(true);
+    // "Focus day" (all day) covers the whole window and swallows the standup.
+    expect(body.calendars.primary?.busy).toEqual([{ start: "2026-11-09T01:00:00.000Z", end: "2026-11-09T11:00:00.000Z" }]);
+  });
+
+  it("skips cancelled and transparent events and clips spans to the window", async () => {
+    const { email, token } = await account([FREEBUSY_SCOPE]);
+    const event = (id: string, start: string, end: string, extra: Record<string, unknown> = {}) => ({
+      key: `calendar:event:${email}:${id}`,
+      value: { kind: "calendar#event", id, status: "confirmed", created: "2026-11-01T09:00:00.000Z", updated: "2026-11-01T09:00:00.000Z", start: { dateTime: start }, end: { dateTime: end }, ...extra },
+    });
+    await fake.seed({
+      accounts: [],
+      resources: [
+        event("free-a", "2026-11-12T09:00:00Z", "2026-11-12T10:00:00Z", { transparency: "transparent" }),
+        event("free-b", "2026-11-12T10:00:00Z", "2026-11-12T11:00:00Z", { status: "cancelled" }),
+        event("busy-a", "2026-11-12T08:30:00Z", "2026-11-12T09:30:00Z"),
+        event("busy-b", "2026-11-12T09:30:00Z", "2026-11-12T12:00:00Z"),
+      ],
+    });
+    const body = (await (await query(token, { timeMin: "2026-11-12T09:00:00Z", timeMax: "2026-11-12T11:00:00Z", items: [{ id: email }] })).json()) as Busy;
+    expect(body.calendars[email]?.busy).toEqual([{ start: "2026-11-12T09:00:00.000Z", end: "2026-11-12T11:00:00.000Z" }]);
+  });
+
+  it("answers a calendar the account does not have with a notFound error entry, and rejects bad requests", async () => {
+    const { token } = await account([FREEBUSY_SCOPE]);
+    const window = { timeMin: "2026-11-12T09:00:00Z", timeMax: "2026-11-12T11:00:00Z" };
+    const body = (await (await query(token, { ...window, items: [{ id: "stranger@fake.test" }] })).json()) as Busy;
+    expect(body.calendars["stranger@fake.test"]).toEqual({ busy: [], errors: [{ domain: "global", reason: "notFound" }] });
+    expect((await query(token, { ...window, items: [] })).status).toBe(400);
+    expect((await query(token, { timeMin: "x", timeMax: "y", items: [{ id: "primary" }] })).status).toBe(400);
+    expect((await query(token, { timeMin: window.timeMax, timeMax: window.timeMin, items: [{ id: "primary" }] })).status).toBe(400);
+  });
+});
+
+describe("acl", () => {
+  it("inserts and deletes a rule, keyed by type and value", async () => {
+    const { email, token } = await account([ACL_SCOPE]);
+    const res = await post(token, "/calendars/primary/acl", { role: "reader", scope: { type: "user", value: "dana@fake.test" } });
+    expect(res.status).toBe(200);
+    const rule = (await res.json()) as { id: string; role: string };
+    expect(rule).toMatchObject({ kind: "calendar#aclRule", id: "user:dana@fake.test", role: "reader" });
+    expect(outputSchema("calendar.acl.insert").safeParse(rule).success).toBe(true);
+    expect(Object.keys((await fake.state(email)).resources).filter((k) => k.startsWith(`calendar:acl:${email}:`)).sort()).toEqual([
+      `calendar:acl:${email}:user:${email}`,
+      `calendar:acl:${email}:user:dana@fake.test`,
+    ]);
+
+    expect((await api(token, `${BASE}/calendars/primary/acl/${encodeURIComponent("user:dana@fake.test")}`, { method: "DELETE" })).status).toBe(204);
+    expect((await api(token, `${BASE}/calendars/primary/acl/${encodeURIComponent("user:dana@fake.test")}`, { method: "DELETE" })).status).toBe(404);
+  });
+
+  it("opens the calendar to everyone with a default scope and validates the rule", async () => {
+    const { email, token } = await account([ACL_SCOPE]);
+    expect(((await (await post(token, "/calendars/primary/acl", { role: "freeBusyReader", scope: { type: "default" } })).json()) as { id: string }).id).toBe("default");
+    expect((await fake.state(email)).resources[`calendar:acl:${email}:default`]).toMatchObject({ role: "freeBusyReader" });
+    for (const bad of [{ role: "admin", scope: { type: "default" } }, { role: "reader", scope: { type: "everyone" } }, { role: "reader", scope: { type: "user" } }, { role: "reader" }]) {
+      expect((await post(token, "/calendars/primary/acl", bad)).status, JSON.stringify(bad)).toBe(400);
+    }
+    expect((await post(token, "/calendars/other@fake.test/acl", { role: "reader", scope: { type: "default" } })).status).toBe(404);
+  });
+});
+
 describe("fixtures", () => {
-  const fixtures: Fixture[] = [parseFixture(calendarGet), parseFixture(calendarListList), parseFixture(eventsList), parseFixture(eventsInsert)];
+  const fixtures: Fixture[] = [parseFixture(calendarGet), parseFixture(calendarListList), parseFixture(eventsList), parseFixture(eventsInsert), parseFixture(freeBusyQuery), parseFixture(aclInsert)];
+  const bodies: Record<string, unknown> = {
+    "calendar-events-insert": { summary: "Dentist", start: { dateTime: "2026-11-09T14:00:00+07:00" }, end: { dateTime: "2026-11-09T15:00:00+07:00" } },
+    "calendar-freebusy-query": { timeMin: "2026-11-09T17:00:00Z", timeMax: "2026-11-10T03:00:00Z", items: [{ id: "primary" }] },
+    "calendar-acl-insert": { role: "reader", scope: { type: "user", value: "colleague@fake.test" } },
+  };
 
   function url(fx: Fixture): string {
     const qs = new URLSearchParams();
@@ -231,9 +358,9 @@ describe("fixtures", () => {
 
   it("are what the fake serves for a seeded account", async () => {
     const email = uniqueEmail("cal-replay");
-    const { token } = await account([EVENTS_SCOPE, LIST_SCOPE, `${G}calendar.calendars.readonly`], email);
+    const { token } = await account([EVENTS_SCOPE, LIST_SCOPE, `${G}calendar.calendars.readonly`, FREEBUSY_SCOPE, ACL_SCOPE], email);
     for (const fx of fixtures) {
-      const body = fx.id === "calendar-events-insert" ? { summary: "Dentist", start: { dateTime: "2026-11-09T14:00:00+07:00" }, end: { dateTime: "2026-11-09T15:00:00+07:00" } } : undefined;
+      const body = bodies[fx.id];
       const res = await api(token, url(fx), {
         method: fx.request.method,
         ...(body ? { headers: { "content-type": "application/json" }, body: JSON.stringify(body) } : {}),

@@ -5,8 +5,11 @@
 // run's body/content markers, for secret shapes and for the run's own secret values. Nothing found is ever
 // printed, only where it was found.
 //
-// Standalone: npx tsx scripts/e2e/d1-scan.ts --local|--remote [--marker <text>]...
-import { execFile } from "node:child_process";
+// A third mode reads and writes the SQLite file of a Docker container named `gws-mcp-e2e-*` (the Node host's database
+// on its /data volume), by running node:sqlite inside that container with `docker exec`.
+//
+// Standalone: npx tsx scripts/e2e/d1-scan.ts --local|--remote|--docker <container> [--marker <text>]...
+import { execFile, spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
@@ -17,7 +20,44 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", ".
 export const E2E_DATABASE = "gws-mcp-e2e";
 const run = promisify(execFile);
 
-export type D1Mode = "local" | "remote";
+export type D1Mode = "local" | "remote" | `docker:${string}`;
+
+/** The only container names the docker mode accepts: this harness's own, never an operator's. */
+export const E2E_CONTAINER = /^gws-mcp-e2e-[a-z0-9][a-z0-9-]{0,40}$/;
+
+/** The container of a docker mode, or null for the wrangler modes. Throws for a name outside `E2E_CONTAINER`. */
+export function dockerContainer(mode: D1Mode): string | null {
+  if (!mode.startsWith("docker:")) return null;
+  const name = mode.slice("docker:".length);
+  if (!E2E_CONTAINER.test(name)) throw new Error(`refusing container ${JSON.stringify(name)}: only gws-mcp-e2e-* containers are driven`);
+  return name;
+}
+
+/** Runs in the container: one statement from stdin on the server's own database file, rows out as JSON. */
+const CONTAINER_SQL = `
+const { DatabaseSync } = require("node:sqlite");
+let sql = "";
+process.stdin.setEncoding("utf8").on("data", (d) => (sql += d)).on("end", () => {
+  const db = new DatabaseSync(process.env.GWS_DB_FILE);
+  db.exec("PRAGMA busy_timeout = 5000");
+  process.stdout.write(JSON.stringify(db.prepare(sql).all()));
+  db.close();
+});
+`;
+
+/** One statement through `docker exec -i <container> node -e ...`; stdout is the JSON rows. */
+function dockerSql(container: string, sql: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const child = spawn("docker", ["exec", "-i", container, "node", "--disable-warning=ExperimentalWarning", "-e", CONTAINER_SQL], { stdio: ["pipe", "pipe", "pipe"] });
+    const out: Buffer[] = [];
+    let stderr = "";
+    child.stdout.on("data", (d: Buffer) => out.push(d));
+    child.stderr.on("data", (d: Buffer) => (stderr += d.toString()));
+    child.on("error", reject);
+    child.on("close", (code) => (code === 0 ? resolve(Buffer.concat(out).toString("utf8")) : reject(new Error(`docker exec sql failed (${code}): ${stderr.trim().slice(0, 200)}`))));
+    child.stdin.end(sql);
+  });
+}
 
 /** Values the harness puts into SQL text: ids, emails and markers only. Anything else is refused. */
 const SAFE_LITERAL = /^[A-Za-z0-9_.@:+-]{1,200}$/;
@@ -31,7 +71,7 @@ export function sqlLiteral(value: string): string {
  * The `npx` argv of one `wrangler d1 execute` on the E2E database, with the E2E config (scripts/wrangler.ts): the
  * local one when present, the example only for `--local`. Throws, running nothing, when remote has no local config.
  */
-export function d1ExecuteArgs(mode: D1Mode, sql: string, root = ROOT, exists?: (file: string) => boolean): string[] {
+export function d1ExecuteArgs(mode: "local" | "remote", sql: string, root = ROOT, exists?: (file: string) => boolean): string[] {
   const res = wranglerArgv("e2e", ["d1", "execute", E2E_DATABASE, `--${mode}`, "--json", "--command", sql], root, exists);
   if (!res.ok) throw new Error(res.message);
   return ["wrangler", ...res.argv];
@@ -39,6 +79,11 @@ export function d1ExecuteArgs(mode: D1Mode, sql: string, root = ROOT, exists?: (
 
 /** Runs one SQL statement and returns its rows. */
 export async function d1Query<T = Record<string, unknown>>(mode: D1Mode, sql: string): Promise<T[]> {
+  if (mode !== "local" && mode !== "remote") {
+    const container = dockerContainer(mode);
+    if (container !== null) return JSON.parse(await dockerSql(container, sql)) as T[];
+    throw new Error("unknown D1 mode");
+  }
   const { stdout } = await run("npx", d1ExecuteArgs(mode, sql), {
     cwd: ROOT,
     maxBuffer: 256 * 1024 * 1024,
@@ -140,7 +185,8 @@ export async function scanD1(mode: D1Mode, markers: readonly Needle[], secrets: 
 
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
-  const mode: D1Mode = args.includes("--remote") ? "remote" : "local";
+  const docker = args.indexOf("--docker");
+  const mode: D1Mode = docker >= 0 ? `docker:${args[docker + 1] ?? ""}` : args.includes("--remote") ? "remote" : "local";
   const markers: Needle[] = [];
   for (let i = 0; i < args.length; i++) if (args[i] === "--marker" && args[i + 1]) markers.push({ name: `marker ${i}`, needle: args[++i] ?? "" });
   const scan = await scanD1(mode, markers);

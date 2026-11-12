@@ -1,0 +1,32 @@
+{
+  "id": "searchconsole-url-inspection-inspect",
+  "source": "synthesized",
+  "provenance": "Discovery searchconsole v1 rev 20261109 InspectUrlIndexResponse; served by the fake seeded with preset \"default\" for alice@fake.test",
+  "request": {
+    "method": "POST",
+    "path": "/searchconsole.googleapis.com/v1/urlInspection/index:inspect"
+  },
+  "response": {
+    "status": 200,
+    "headers": {},
+    "body": {
+      "inspectionResult": {
+        "inspectionResultLink": "https://search.google.com/search-console/inspect?resource_id=https%3A%2F%2Fexample.test%2F&id=https%3A%2F%2Fexample.test%2Fpricing",
+        "indexStatusResult": {
+          "verdict": "PASS",
+          "coverageState": "Submitted and indexed",
+          "robotsTxtState": "ALLOWED",
+          "indexingState": "INDEXING_ALLOWED",
+          "lastCrawlTime": "2026-11-08T21:14:09Z",
+          "pageFetchState": "SUCCESSFUL",
+          "googleCanonical": "https://example.test/pricing",
+          "userCanonical": "https://example.test/pricing",
+          "crawledAs": "MOBILE",
+          "sitemap": [
+            "https://example.test/sitemap.xml"
+          ]
+        }
+      }
+    }
+  }
+}

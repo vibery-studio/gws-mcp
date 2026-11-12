@@ -1,3 +1,4 @@
+import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AuthProps } from "../../src/contracts";
 import { createCallSession } from "../../src/core/dispatch";
@@ -136,5 +137,110 @@ describe("local redaction of console output (every secret held, every token load
     expect(out.logs).toEqual([redacted]);
     expect(out.error).toEqual({ code: "GWS_EXECUTION_ERROR", message: `ended: ${redacted}` });
     expect(JSON.stringify(out)).not.toMatch(/opaque-|plain-client-secret/);
+  });
+});
+
+describe("local Google Ads settings", () => {
+  const ADWORDS = "https://www.googleapis.com/auth/adwords";
+
+  it("sends the saved values only as Google Ads headers, and redacts the developer token (not the login customer id) from every later line", async () => {
+    const seen: Array<{ host: string; token: string | null; login: string | null }> = [];
+    vi.stubGlobal("fetch", async (input: string | URL | Request, init?: RequestInit) => {
+      const req = new Request(input, init);
+      const url = new URL(req.url);
+      if (url.pathname === "/token") return Response.json({ access_token: "opaque-access-token-0003", expires_in: 3600, token_type: "Bearer" });
+      seen.push({ host: url.hostname, token: req.headers.get("developer-token"), login: req.headers.get("login-customer-id") });
+      return url.hostname === "googleads.googleapis.com" ? Response.json({ resourceNames: ["customers/5550002222"] }) : Response.json({ files: [] });
+    });
+    const { store, secrets } = await local("google");
+    await secrets.set("GOOGLE_CLIENT_ID", "client-id-0003.apps.googleusercontent.com");
+    await secrets.set("GOOGLE_CLIENT_SECRET", "plain-client-secret-0003");
+    const config = localConfig({ GOOGLE_UPSTREAM: "google" });
+    await store.accounts.upsertConnected({ userId: LOCAL_USER_ID, email: "ads@example.test", sub: "s-ads", scopes: [ADWORDS, DRIVE_FILE], refreshToken: "opaque-refresh-ads-0003" });
+    const base = localPorts({ config, store, secrets });
+    // Everything that crosses into the sandbox, recorded raw, before any redaction of the output.
+    const crossed: string[] = [];
+    const ports = {
+      ...base,
+      sandbox: {
+        normalize: base.sandbox.normalize,
+        run: (req: Parameters<typeof base.sandbox.run>[0]) =>
+          base.sandbox.run({
+            ...req,
+            call: async (name, input) => {
+              const r = await req.call(name, input);
+              crossed.push(JSON.stringify(r));
+              return r;
+            },
+          }),
+      },
+    };
+
+    const missing = await runExecute({ code: "async () => sdk.googleads.customers.listAccessibleCustomers({})", apply: false, auth: AUTH, ports, config });
+    expect(missing.error?.code).toBe("GWS_ADS_DEVELOPER_TOKEN_MISSING");
+    // No web page locally, so no one-time link either.
+    expect(missing.error?.details).toEqual({ setting: "ads.developer_token" });
+    expect(seen).toEqual([]);
+
+    await store.settings.set(LOCAL_USER_ID, "ads.developer_token", "FAKE-local-dev-token-0003");
+    await store.settings.set(LOCAL_USER_ID, "ads.login_customer_id", "555-000-2222");
+    const out = await runExecute({
+      code: "async () => { const r = await sdk.googleads.customers.listAccessibleCustomers({}); await sdk.drive.files.list({}); return r; }",
+      apply: false,
+      auth: AUTH,
+      ports,
+      config,
+    });
+    // Checked first, on the raw traffic: the output below is redacted and could not show a leak.
+    expect(crossed.join("\n")).not.toContain("FAKE-local-dev-token-0003");
+    expect(out).toMatchObject({ ok: true, result: { resourceNames: ["customers/5550002222"] } });
+    expect(seen).toEqual([
+      { host: "googleads.googleapis.com", token: "FAKE-local-dev-token-0003", login: "5550002222" },
+      { host: "www.googleapis.com", token: null, login: null },
+    ]);
+    // The process redactor (CLI lines, the sandbox's console) knows the developer token now; the account number stays.
+    expect(secrets.redactor.redact("t=FAKE-local-dev-token-0003 l=5550002222")).toBe("t=[REDACTED] l=5550002222");
+
+    // A saved value that no longer decrypts gives a structured error naming it, and nothing is sent.
+    const raw = new DatabaseSync(store.path);
+    raw.prepare("UPDATE user_settings SET value_ct = ? WHERE key = 'ads.login_customer_id'").run("A".repeat(40));
+    raw.close();
+    seen.length = 0;
+    const unreadable = await runExecute({ code: "async () => sdk.googleads.customers.listAccessibleCustomers({})", apply: false, auth: AUTH, ports, config });
+    expect([unreadable.error?.code, unreadable.error?.details]).toEqual(["GWS_SETTING_UNREADABLE", { setting: "ads.login_customer_id" }]);
+    expect(seen).toEqual([]);
+  });
+});
+
+describe("local one-time setting links", () => {
+  it("are refused with GWS_UNSUPPORTED_RUNTIME pointing to the CLI, and the settings.set refusal offers none", async () => {
+    const { store, secrets } = await local();
+    const config = localConfig();
+    const ports = localPorts({ config, store, secrets });
+    const link = await runExecute({ code: 'async () => sdk.settings.requestLink({ key: "ads.login_customer_id" })', apply: false, auth: AUTH, ports, config });
+    expect(link.error).toEqual({
+      code: "GWS_UNSUPPORTED_RUNTIME",
+      message: expect.stringContaining("`gws-mcp settings set ads.login_customer_id`"),
+      fn: "settings.requestLink",
+      details: { setting: "ads.login_customer_id" },
+    });
+    const refused = await runExecute({ code: 'async () => sdk.settings.set({ key: "ads.developer_token", value: "x" })', apply: false, auth: AUTH, ports, config });
+    expect([refused.error?.code, refused.error?.details]).toEqual(["GWS_INVALID_INPUT", { reason: "set_outside_ai_app" }]);
+    const raw = new DatabaseSync(store.path);
+    const { n } = raw.prepare("SELECT count(*) AS n FROM links").get() as { n: number };
+    raw.close();
+    expect(n).toBe(0);
+  });
+
+  it("share the remote schema: the used-links table exists and every save and clear moves the settings version", async () => {
+    const { store } = await local();
+    const raw = new DatabaseSync(store.path);
+    const table = raw.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'used_links'").get();
+    raw.close();
+    expect(table).toEqual({ name: "used_links" });
+    const before = await store.settings.version(LOCAL_USER_ID);
+    await store.settings.set(LOCAL_USER_ID, "ads.login_customer_id", "555-000-3333");
+    await store.settings.clear(LOCAL_USER_ID, "ads.login_customer_id");
+    expect(await store.settings.version(LOCAL_USER_ID)).toBe(before + 2);
   });
 });

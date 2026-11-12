@@ -1,0 +1,53 @@
+{
+  "id": "searchconsole-searchanalytics-query-by-query",
+  "source": "synthesized",
+  "provenance": "Discovery searchconsole v1 rev 20261109 SearchAnalyticsQueryResponse; served by the fake seeded with preset \"default\" for alice@fake.test",
+  "request": {
+    "method": "POST",
+    "path": "/searchconsole.googleapis.com/webmasters/v3/sites/https%3A%2F%2Fexample.test%2F/searchAnalytics/query"
+  },
+  "response": {
+    "status": 200,
+    "headers": {},
+    "body": {
+      "rows": [
+        {
+          "keys": [
+            "example widgets"
+          ],
+          "clicks": 48,
+          "impressions": 1004,
+          "ctr": 0.04780876494023904,
+          "position": 2.2308764940239048
+        },
+        {
+          "keys": [
+            "widget pricing"
+          ],
+          "clicks": 41,
+          "impressions": 1042,
+          "ctr": 0.03934740882917467,
+          "position": 3.5312859884836856
+        },
+        {
+          "keys": [
+            "buy widgets"
+          ],
+          "clicks": 27,
+          "impressions": 842,
+          "ctr": 0.032066508313539195,
+          "position": 5.932541567695962
+        },
+        {
+          "keys": [
+            "launch notes"
+          ],
+          "clicks": 20,
+          "impressions": 740,
+          "ctr": 0.02702702702702703,
+          "position": 7.333783783783784
+        }
+      ]
+    }
+  }
+}

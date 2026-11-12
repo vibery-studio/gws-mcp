@@ -141,6 +141,48 @@ export async function done05(ctx: Ctx, r: Recorder): Promise<void> {
   r.check((await files()).length === 1 && anyone, `the fake holds the file and its public share: ${anyone}`);
 }
 
+// ---- Marketing services: one read each against the fake -----------------------------------------------------------
+
+/** Evidence from one snippet: ok, and the value the check looks at. */
+async function read<T>(ctx: Ctx, code: string): Promise<{ ok: boolean; code: string; value: T | undefined }> {
+  const { out } = await execute(ctx.main, code);
+  return { ok: out.ok, code: codeOf(out), value: out.result as T | undefined };
+}
+
+export async function marketingServices(ctx: Ctx, r: Recorder): Promise<void> {
+  const sites = await read<{ siteEntry?: Array<{ siteUrl: string }> }>(ctx, `async () => sdk.webmasters.sites.list({})`);
+  r.check(sites.ok && (sites.value?.siteEntry ?? []).some((s) => s.siteUrl === "https://example.test/"), `Search Console webmasters.sites.list -> ${sites.ok ? JSON.stringify(sites.value?.siteEntry?.map((s) => s.siteUrl)) : sites.code}`);
+
+  const meta = await read<{ name?: string; metrics?: unknown[] }>(ctx, `async () => sdk.analyticsdata.properties.getMetadata({ name: "properties/2001/metadata" })`);
+  r.check(meta.ok && meta.value?.name === "properties/2001/metadata" && (meta.value.metrics ?? []).length > 0, `Analytics data getMetadata -> ${meta.ok ? `${meta.value?.metrics?.length ?? 0} metrics` : meta.code}`);
+
+  const props = await read<{ properties?: Array<{ propertyId: string }> }>(ctx, `async () => sdk.analytics.properties({})`);
+  r.check(props.ok && (props.value?.properties ?? []).some((p) => p.propertyId === "2001"), `Analytics admin analytics.properties -> ${props.ok ? JSON.stringify(props.value?.properties?.map((p) => p.propertyId)) : props.code}`);
+
+  const gtm = await read<{ containers?: Array<{ publicId: string }> }>(ctx, `async () => sdk.tagmanager.containers({})`);
+  r.check(gtm.ok && (gtm.value?.containers ?? []).some((c) => c.publicId === "GTM-AB12CD"), `Tag Manager tagmanager.containers -> ${gtm.ok ? JSON.stringify(gtm.value?.containers?.map((c) => c.publicId)) : gtm.code}`);
+
+  const groups = await read<{ groups?: Array<{ email: string }> }>(ctx, `async () => sdk.directory.groups.list({ customer: "my_customer" })`);
+  r.check(groups.ok && (groups.value?.groups ?? []).length > 0, `Groups directory.groups.list -> ${groups.ok ? `${groups.value?.groups?.length ?? 0} groups` : groups.code}`);
+
+  // Google Ads: refused before any request to Google while no developer token is saved, then served once it is.
+  const adsCode = `async () => sdk.ads.accounts({})`;
+  const before = (await ctx.fake.requests(ctx.emails.a)).length;
+  const missing = await execute(ctx.main, adsCode);
+  const adsRequests = (await ctx.fake.requests(ctx.emails.a)).slice(before).filter((q) => q.path.includes("googleads"));
+  r.check(
+    codeOf(missing.out) === "GWS_ADS_DEVELOPER_TOKEN_MISSING" && adsRequests.length === 0,
+    `Ads without a developer token -> ${codeOf(missing.out)}, requests that reached the fake: ${adsRequests.length}`,
+  );
+  const token = `FAKE-dev-token-${crypto.randomUUID().slice(0, 12)}`;
+  ctx.secrets.push(token);
+  const saved = await runCommand(ctx.configDir, ["settings", "set", "ads.developer_token", "--stdin"], `${token}\n`);
+  r.check(saved.code === 0 && !(saved.out + saved.err).includes(token), `settings set ads.developer_token --stdin -> exit ${saved.code}, the value is not printed`);
+  const ads = await execute(ctx.main, adsCode);
+  const customers = (ads.out.result as { customers?: Array<{ customerId: string }> } | undefined)?.customers ?? [];
+  r.check(ads.out.ok && customers.length >= 1 && !ads.text.includes(token), `Ads ads.accounts with the token saved -> ${ads.out.ok ? `${customers.length} customers` : codeOf(ads.out)}, the token is not in the output`);
+}
+
 // ---- Done 7: isolation, redaction, abuse ---------------------------------------------------------------------
 
 const PROBE = `async () => {

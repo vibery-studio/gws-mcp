@@ -91,7 +91,7 @@ describe("fixture contract", () => {
 
   it("covers every service's fixture folder", () => {
     const services = new Set(files.map((f) => f.split(path.sep)[0]));
-    expect([...services].sort()).toEqual(["calendar", "docs", "drive", "forms", "gmail", "sheets", "slides", "tasks"]);
+    expect([...services].sort()).toEqual(["ads", "analytics", "calendar", "docs", "drive", "forms", "gmail", "groups", "searchconsole", "sheets", "slides", "tagmanager", "tasks"]);
   });
 
   it.each(files.map((f) => [f] as const))("%s maps to a generated method and validates against its output schema", (file) => {

@@ -11,11 +11,19 @@ import type { LocalStore } from "./store";
 const CREDENTIAL_FIELDS = ["refresh_token", "token", "code", "code_verifier", "client_secret"] as const;
 const OAUTH_HOST = "oauth2.googleapis.com";
 
-/** Remembers every credential a request carries (bearer token, OAuth form fields) for redaction. */
+/** Request headers whose whole value is a credential. (`login-customer-id` is an account number, not one.) */
+const SECRET_HEADERS = ["developer-token"] as const;
+
+/** Remembers every credential a request carries (bearer token, Ads headers, OAuth form fields) for redaction. */
 function rememberCredentials(url: string, init: RequestInit | undefined, redactor: Redactor): void {
-  const auth = new Headers(init?.headers).get("authorization");
+  const headers = new Headers(init?.headers);
+  const auth = headers.get("authorization");
   const bearer = auth === null ? null : /^Bearer\s+(\S+)$/i.exec(auth);
   if (bearer?.[1] !== undefined) redactor.remember(bearer[1]);
+  for (const name of SECRET_HEADERS) {
+    const value = headers.get(name);
+    if (value) redactor.remember(value);
+  }
   let host: string;
   try {
     host = new URL(url).hostname;
@@ -115,5 +123,16 @@ export function localPorts(opts: LocalPortsOptions): CorePorts {
     rate: store.rate,
     secrets: secrets.source,
     http: { upstream: config.GOOGLE_UPSTREAM, send },
+    userSettings: {
+      isSet: store.settings.isSet,
+      // The developer token is remembered for redaction, like the OAuth tokens; the login customer id is an account
+      // number Google returns in Ads data, so it is not.
+      get: async (userId, key) => {
+        const value = await store.settings.get(userId, key);
+        if (value !== null && key === "ads.developer_token") secrets.redactor.remember(value);
+        return value;
+      },
+      clear: store.settings.clear,
+    },
   };
 }

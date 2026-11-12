@@ -1,0 +1,29 @@
+{
+  "id": "tagmanager-accounts-list",
+  "source": "synthesized",
+  "provenance": "Discovery tagmanager v2 rev 20261111 ListAccountsResponse; served by the fake seeded with preset \"default\" for alice@fake.test",
+  "request": {
+    "method": "GET",
+    "path": "/tagmanager.googleapis.com/tagmanager/v2/accounts"
+  },
+  "response": {
+    "status": 200,
+    "headers": {},
+    "body": {
+      "account": [
+        {
+          "path": "accounts/6001001001",
+          "accountId": "6001001001",
+          "name": "Example Company",
+          "shareData": false,
+          "features": {
+            "supportUserPermissions": true,
+            "supportMultipleContainers": true
+          },
+          "tagManagerUrl": "https://tagmanager.google.com/#/admin/accounts/6001001001",
+          "fingerprint": "1266807312"
+        }
+      ]
+    }
+  }
+}
