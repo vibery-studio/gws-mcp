@@ -26,6 +26,11 @@ const today = await sdk.helpers.todayAgenda({ account: "personal" });
 return { unread: unread.messages?.length ?? 0, today };
 ```
 
+## Inspired by
+
+- **[Google Workspace CLI](https://github.com/googleworkspace/cli)** (`gws`, Apache-2.0) builds its commands from Google's Discovery documents and adds `+helper` shortcuts for common jobs. gws-mcp takes the same approach: its SDK is generated from pinned Discovery documents, with a small set of helpers on top. What it adds is MCP and several Google accounts in one call.
+- **Cloudflare's Code Mode** ([Code Mode: give agents an entire API in 1,000 tokens](https://blog.cloudflare.com/code-mode-mcp/), [cloudflare/mcp](https://github.com/cloudflare/mcp)) puts the whole Cloudflare API behind two tools, `search` and `execute`, and runs the agent's code in a sandbox. gws-mcp uses the same two-tool shape for Google, and its remote mode runs snippets with [`@cloudflare/codemode`](https://www.npmjs.com/package/@cloudflare/codemode) in a Dynamic Worker with no network access.
+
 ## Services, scopes and the Google Cloud APIs
 
 gws-mcp asks Google only for the scopes of the services you connect to an account, and you can add services to an account later.
