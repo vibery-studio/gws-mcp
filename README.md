@@ -6,7 +6,7 @@
 
 A Google Workspace MCP server in code mode. Your AI app gets two tools, `search` and `execute`. With them it finds typed functions for Gmail, Drive, Calendar, Sheets, Docs, Forms, Tasks, Slides, Search Console, Analytics, Google Ads, Google Groups and Tag Manager, then runs a short JavaScript snippet against one or several of your Google accounts.
 
-Project page: https://arealisticdreamer.com/gws-mcp
+Project page: https://vibery.app/lab/gws-mcp
 
 - **Two tools only.** `search(query)` returns compact TypeScript signatures, each with its effect and an example. `execute(code, { apply? })` runs a snippet whose only globals are `sdk` and `console`.
 - **Generated SDK.** It is built from pinned Google Discovery documents, with zod-checked inputs and outputs. Methods that cannot be supported safely are listed in [`src/sdk/generated/UNSUPPORTED.md`](src/sdk/generated/UNSUPPORTED.md). The helpers are:
